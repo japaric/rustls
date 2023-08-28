@@ -488,6 +488,9 @@ impl CommonState {
     }
 
     pub(crate) fn process_alert(&mut self, alert: &AlertMessagePayload) -> Result<(), Error> {
+        let scope = crate::Scope::current();
+        eprintln!("{scope}CommonState::process_alert(alert={:#?})", alert);
+
         // Reject unknown AlertLevels.
         if let AlertLevel::Unknown(_) = alert.level {
             return Err(self.send_fatal_alert(

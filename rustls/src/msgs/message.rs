@@ -71,8 +71,8 @@ impl MessagePayload {
 
     pub fn content_type_str(&self) -> Cow<str> {
         match self {
-            Self::Alert(_) => "Alert".into(),
-            Self::Handshake { parsed, .. } => format!("Handshake::{:?}", parsed.typ).into(),
+            Self::Alert(alert) => format!("Handshake::{alert:#?}").into(),
+            Self::Handshake { parsed, .. } => format!("Handshake::{:#?}", parsed.payload).into(),
             Self::ChangeCipherSpec(_) => "ChangeCipherSpec".into(),
             Self::ApplicationData(_) => "ApplicationData".into(),
         }
