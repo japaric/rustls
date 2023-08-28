@@ -144,6 +144,9 @@ pub trait ServerCertVerifier: Send + Sync {
         cert: &Certificate,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
+        let scope = crate::Scope::current();
+        eprintln!("{scope}<dyn ServerCertVerifier>::verify_tls12_signature()");
+
         verify_signed_struct(message, cert, dss)
     }
 
@@ -170,6 +173,9 @@ pub trait ServerCertVerifier: Send + Sync {
         cert: &Certificate,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
+        let scope = crate::Scope::current();
+        eprintln!("{scope}<dyn ServerCertVerifier>::verify_tls13_signature()");
+
         verify_tls13(message, cert, dss)
     }
 
@@ -181,6 +187,9 @@ pub trait ServerCertVerifier: Send + Sync {
     /// This trait method has a default implementation that reflects the schemes
     /// supported by webpki.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        let scope = crate::Scope::current();
+        eprintln!("{scope}<dyn ServerCertVerifier>::supported_verify_schemes()");
+
         WebPkiVerifier::verification_schemes()
     }
 }
