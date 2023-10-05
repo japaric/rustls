@@ -16,6 +16,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::{self, Debug, Formatter};
+#[cfg(feature = "std")]
 use std::error::Error as StdError;
 
 /// Parse `der` as any supported key encoding/type, returning
