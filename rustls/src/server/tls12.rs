@@ -312,12 +312,15 @@ mod client_hello {
             cx.common.peer_certificates = resumedata.client_cert_chain;
 
             if self.send_ticket {
+                let now = self.config.get_current_time()?;
+
                 emit_ticket(
                     &secrets,
                     &mut self.transcript,
                     self.using_ems,
                     cx,
                     &*self.config.ticketer,
+                    now,
                 )?;
             }
             emit_ccs(cx.common);
@@ -547,9 +550,11 @@ impl State<ServerConnectionData> for ExpectCertificate {
                 None
             }
             Some((end_entity, intermediates)) => {
+                let now = self.config.get_current_time()?;
+
                 self.config
                     .verifier
-                    .verify_client_cert(end_entity, intermediates, UnixTime::now())
+                    .verify_client_cert(end_entity, intermediates, now)
                     .map_err(|err| {
                         cx.common
                             .send_cert_verify_error_alert(err)
@@ -781,9 +786,9 @@ fn emit_ticket(
     using_ems: bool,
     cx: &mut ServerContext<'_>,
     ticketer: &dyn ProducesTickets,
+    now: UnixTime,
 ) -> Result<(), Error> {
-    let plain =
-        get_server_connection_value_tls12(secrets, using_ems, cx, UnixTime::now()).get_encoding();
+    let plain = get_server_connection_value_tls12(secrets, using_ems, cx, now).get_encoding();
 
     // If we can't produce a ticket for some reason, we can't
     // report an error. Send an empty one.
@@ -870,12 +875,9 @@ impl State<ServerConnectionData> for ExpectFinished {
 
         // Save connection, perhaps
         if !self.resuming && !self.session_id.is_empty() {
-            let value = get_server_connection_value_tls12(
-                &self.secrets,
-                self.using_ems,
-                cx,
-                UnixTime::now(),
-            );
+            let now = self.config.get_current_time()?;
+
+            let value = get_server_connection_value_tls12(&self.secrets, self.using_ems, cx, now);
 
             let worked = self
                 .config
@@ -892,12 +894,14 @@ impl State<ServerConnectionData> for ExpectFinished {
         self.transcript.add_message(&m);
         if !self.resuming {
             if self.send_ticket {
+                let now = self.config.get_current_time()?;
                 emit_ticket(
                     &self.secrets,
                     &mut self.transcript,
                     self.using_ems,
                     cx,
                     &*self.config.ticketer,
+                    now,
                 )?;
             }
             emit_ccs(cx.common);
