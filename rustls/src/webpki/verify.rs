@@ -57,12 +57,18 @@ pub fn verify_server_name(cert: &ParsedCertificate, server_name: &ServerName) ->
                 .verify_is_valid_for_subject_name(name)
                 .map_err(pki_error)?;
         }
+        #[cfg(feature = "std")]
         ServerName::IpAddress(ip_addr) => {
             let ip_addr = webpki::IpAddr::from(*ip_addr);
             cert.0
                 .verify_is_valid_for_subject_name(webpki::SubjectNameRef::IpAddress(
                     webpki::IpAddrRef::from(&ip_addr),
                 ))
+                .map_err(pki_error)?;
+        }
+        ServerName::NoStdIpAddress(ip_addr) => {
+            cert.0
+                .verify_is_valid_for_subject_name(webpki::SubjectNameRef::IpAddress(ip_addr.into()))
                 .map_err(pki_error)?;
         }
     }

@@ -1,5 +1,6 @@
 use crate::client;
 use crate::enums::SignatureScheme;
+#[cfg(feature = "std")]
 use crate::limited_cache;
 use crate::msgs::persist;
 use crate::sign;
@@ -15,6 +16,7 @@ use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 #[cfg(feature = "ring")]
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
 use std::sync::Mutex;
 
 /// An implementer of `ClientSessionStore` which does nothing.
@@ -70,10 +72,12 @@ impl Default for ServerData {
 /// in memory.
 ///
 /// It enforces a limit on the number of entries to bound memory usage.
+#[cfg(feature = "std")]
 pub struct ClientSessionMemoryCache {
     servers: Mutex<limited_cache::LimitedCache<ServerName, ServerData>>,
 }
 
+#[cfg(feature = "std")]
 impl ClientSessionMemoryCache {
     /// Make a new ClientSessionMemoryCache.  `size` is the
     /// maximum number of stored sessions.
@@ -86,6 +90,7 @@ impl ClientSessionMemoryCache {
     }
 }
 
+#[cfg(feature = "std")]
 impl client::ClientSessionStore for ClientSessionMemoryCache {
     fn set_kx_hint(&self, server_name: &ServerName, group: NamedGroup) {
         self.servers

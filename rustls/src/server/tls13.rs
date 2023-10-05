@@ -312,10 +312,20 @@ mod client_hello {
                 }
 
                 for (i, psk_id) in psk_offer.identities.iter().enumerate() {
+                    #[cfg(feature = "std")]
+                    let now = UnixTime::now();
+
+                    #[cfg(not(feature = "std"))]
+                    let now = self
+                        .config
+                        .time_provider
+                        .get_current_time()
+                        .map_err(|_| Error::FailedToGetCurrentTime)?;
+
                     let resume = match self
                         .attempt_tls13_ticket_decryption(&psk_id.identity.0)
                         .map(|resumedata| {
-                            resumedata.set_freshness(psk_id.obfuscated_ticket_age, UnixTime::now())
+                            resumedata.set_freshness(psk_id.obfuscated_ticket_age, now)
                         })
                         .filter(|resumedata| {
                             hs::can_resume(self.suite.into(), &cx.data.sni, false, resumedata)
@@ -924,9 +934,19 @@ impl State<ServerConnectionData> for ExpectCertificate {
             Some(chain) => chain,
         };
 
+        #[cfg(feature = "std")]
+        let now = UnixTime::now();
+
+        #[cfg(not(feature = "std"))]
+        let now = self
+            .config
+            .time_provider
+            .get_current_time()
+            .map_err(|_| Error::FailedToGetCurrentTime)?;
+
         self.config
             .verifier
-            .verify_client_cert(end_entity, intermediates, UnixTime::now())
+            .verify_client_cert(end_entity, intermediates, now)
             .map_err(|err| {
                 cx.common
                     .send_cert_verify_error_alert(err)
@@ -1092,16 +1112,19 @@ impl ExpectFinished {
     ) -> Result<(), Error> {
         let nonce = rand::random_vec(config.provider, 32)?;
         let age_add = rand::random_u32(config.provider)?;
-        let plain = get_server_session_value(
-            transcript,
-            suite,
-            key_schedule,
-            cx,
-            &nonce,
-            UnixTime::now(),
-            age_add,
-        )
-        .get_encoding();
+
+        #[cfg(feature = "std")]
+        let now = UnixTime::now();
+
+        #[cfg(not(feature = "std"))]
+        let now = config
+            .time_provider
+            .get_current_time()
+            .map_err(|_| Error::FailedToGetCurrentTime)?;
+
+        let plain =
+            get_server_session_value(transcript, suite, key_schedule, cx, &nonce, now, age_add)
+                .get_encoding();
 
         let stateless = config.ticketer.enabled();
         let (ticket, lifetime) = if stateless {

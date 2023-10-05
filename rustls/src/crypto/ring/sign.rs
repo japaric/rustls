@@ -14,6 +14,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
+#[cfg(feature = "std")]
 use std::error::Error as StdError;
 
 /// Parse `der` as any supported key encoding/type, returning
@@ -350,6 +351,7 @@ impl fmt::Display for SignError {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for SignError {}
 
 #[cfg(test)]

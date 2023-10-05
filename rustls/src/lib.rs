@@ -311,7 +311,7 @@ extern crate alloc;
 // is in `std::prelude` but not in `core::prelude`. This helps maintain no-std support as even
 // developers that are not interested in, or aware of, no-std support and / or that never run
 // `cargo build --no-default-features` locally will get errors when they rely on `std::prelude` API.
-#[cfg(not(test))]
+#[cfg(all(feature = "std", not(test)))]
 extern crate std;
 
 // Import `test` sysroot crate for `Bencher` definitions.
@@ -340,9 +340,11 @@ pub mod crypto;
 mod dns_name;
 mod error;
 mod hash_hs;
+#[cfg(feature = "std")]
 mod limited_cache;
 mod rand;
 mod record_layer;
+#[cfg(feature = "std")]
 mod stream;
 #[cfg(feature = "tls12")]
 mod tls12;
@@ -358,6 +360,7 @@ mod bs_debug;
 mod builder;
 mod enums;
 mod key_log;
+#[cfg(feature = "std")]
 mod key_log_file;
 mod ll;
 mod suites;
@@ -410,7 +413,9 @@ pub use crate::builder::{
     ConfigBuilder, ConfigSide, WantsCipherSuites, WantsKxGroups, WantsVerifier, WantsVersions,
 };
 pub use crate::common_state::{CommonState, IoState, Side};
-pub use crate::conn::{Connection, ConnectionCommon, Reader, SideData, Writer};
+#[cfg(feature = "std")]
+pub use crate::conn::{Connection, Reader, Writer};
+pub use crate::conn::{ConnectionCommon, SideData};
 pub use crate::enums::{
     AlertDescription, CipherSuite, ContentType, HandshakeType, ProtocolVersion, SignatureAlgorithm,
     SignatureScheme,
@@ -420,6 +425,7 @@ pub use crate::error::{
     PeerMisbehaved,
 };
 pub use crate::key_log::{KeyLog, NoKeyLog};
+#[cfg(feature = "std")]
 pub use crate::key_log_file::KeyLogFile;
 pub use crate::ll::{
     AppDataAvailable, AppDataRecord, EncodeError, EncryptError, InsufficientSizeError,
@@ -428,8 +434,10 @@ pub use crate::ll::{
 };
 pub use crate::msgs::enums::NamedGroup;
 pub use crate::msgs::handshake::DistinguishedName;
+#[cfg(feature = "std")]
 pub use crate::stream::{Stream, StreamOwned};
 pub use crate::suites::{ConnectionTrafficSecrets, ExtractedSecrets, SupportedCipherSuite};
+#[cfg(feature = "std")]
 pub use crate::ticketer::TicketSwitcher;
 #[cfg(feature = "tls12")]
 pub use crate::tls12::Tls12CipherSuite;
@@ -452,10 +460,12 @@ pub mod client {
     pub use crate::dns_name::InvalidDnsNameError;
     pub use builder::WantsClientCert;
     pub use client_conn::{
-        ClientConfig, ClientConnection, ClientConnectionData, ClientSessionStore,
-        LlClientConnection, ResolvesClientCert, Resumption, ServerName, Tls12Resumption,
-        WriteEarlyData,
+        ClientConfig, ClientConnectionData, ClientSessionStore, LlClientConnection,
+        ResolvesClientCert, Resumption, ServerName, Tls12Resumption,
     };
+    #[cfg(feature = "std")]
+    pub use client_conn::{ClientConnection, WriteEarlyData};
+    #[cfg(feature = "std")]
     pub use handy::ClientSessionMemoryCache;
 
     /// Dangerous configuration that should be audited and used with extreme care.
@@ -474,7 +484,9 @@ pub mod client {
     pub use crate::msgs::persist::Tls13ClientSessionValue;
 }
 
-pub use client::{ClientConfig, ClientConnection, ServerName};
+#[cfg(feature = "std")]
+pub use client::ClientConnection;
+pub use client::{ClientConfig, ServerName};
 
 /// Items for use in a server.
 pub mod server {
@@ -491,12 +503,15 @@ pub mod server {
     pub use crate::webpki::WebPkiClientVerifier;
     pub use crate::webpki::{ClientCertVerifierBuilder, VerifierBuilderError};
     pub use builder::WantsServerCert;
+    pub use handy::NoServerSessionStorage;
+    #[cfg(feature = "std")]
     pub use handy::ResolvesServerCertUsingSni;
-    pub use handy::{NoServerSessionStorage, ServerSessionMemoryCache};
+    #[cfg(feature = "std")]
+    pub use handy::ServerSessionMemoryCache;
     pub use server_conn::StoresServerSessions;
-    pub use server_conn::{
-        Accepted, Acceptor, ReadEarlyData, ServerConfig, ServerConnection, ServerConnectionData,
-    };
+    pub use server_conn::{Accepted, ServerConfig, ServerConnectionData};
+    #[cfg(feature = "std")]
+    pub use server_conn::{Acceptor, ReadEarlyData, ServerConnection};
     pub use server_conn::{ClientHello, ProducesTickets, ResolvesServerCert};
 
     /// Dangerous configuration that should be audited and used with extreme care.
@@ -508,7 +523,9 @@ pub mod server {
     pub use crate::webpki::ParsedCertificate;
 }
 
-pub use server::{ServerConfig, ServerConnection};
+pub use server::ServerConfig;
+#[cfg(feature = "std")]
+pub use server::ServerConnection;
 
 /// All defined ciphersuites appear in this module.
 ///
@@ -551,3 +568,6 @@ pub mod quic;
 
 /// This is the rustls manual.
 pub mod manual;
+
+#[cfg(not(feature = "std"))]
+pub mod time_provider;

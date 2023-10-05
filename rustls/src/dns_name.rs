@@ -2,6 +2,7 @@
 
 use alloc::string::{String, ToString};
 use core::fmt;
+#[cfg(feature = "std")]
 use std::error::Error as StdError;
 
 /// A type which encapsulates an owned string that is a syntactically valid DNS name.
@@ -82,6 +83,7 @@ impl fmt::Display for InvalidDnsNameError {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for InvalidDnsNameError {}
 
 fn validate(input: &[u8]) -> Result<(), InvalidDnsNameError> {

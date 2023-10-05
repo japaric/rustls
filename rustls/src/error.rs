@@ -4,10 +4,13 @@ use crate::rand;
 
 use alloc::format;
 use alloc::string::String;
+#[cfg(feature = "std")]
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
+#[cfg(feature = "std")]
 use std::error::Error as StdError;
+#[cfg(feature = "std")]
 use std::time::SystemTimeError;
 
 /// rustls reports protocol errors using this type.
@@ -102,7 +105,7 @@ pub enum Error {
     /// provider specific error.
     ///
     /// Enums holding this variant will never compare equal to each other.
-    Other(OtherError),
+    Other(#[cfg(feature = "std")] OtherError),
 }
 
 /// A corrupt TLS message payload that resulted in an error.
@@ -340,7 +343,7 @@ pub enum CertificateError {
     /// not covered by the above common cases.
     ///
     /// Enums holding this variant will never compare equal to each other.
-    Other(Arc<dyn StdError + Send + Sync>),
+    Other(#[cfg(feature = "std")] Arc<dyn StdError + Send + Sync>),
 }
 
 impl PartialEq<Self> for CertificateError {
@@ -386,7 +389,7 @@ impl From<CertificateError> for AlertDescription {
             // certificate_unknown
             //  Some other (unspecified) issue arose in processing the
             //  certificate, rendering it unacceptable.
-            Other(_) => Self::CertificateUnknown,
+            Other(..) => Self::CertificateUnknown,
         }
     }
 }
@@ -417,7 +420,7 @@ pub enum CertRevocationListError {
     /// The CRL is invalid for some other reason.
     ///
     /// Enums holding this variant will never compare equal to each other.
-    Other(Arc<dyn StdError + Send + Sync>),
+    Other(#[cfg(feature = "std")] Arc<dyn StdError + Send + Sync>),
 
     /// The CRL is not correctly encoded.
     ParseError,
@@ -523,11 +526,15 @@ impl fmt::Display for Error {
                 write!(f, "the supplied max_fragment_size was too small or large")
             }
             Self::General(ref err) => write!(f, "unexpected error: {}", err),
+            #[cfg(feature = "std")]
             Self::Other(ref err) => write!(f, "other error: {:?}", err),
+            #[cfg(not(feature = "std"))]
+            Self::Other(..) => write!(f, "other error"),
         }
     }
 }
 
+#[cfg(feature = "std")]
 impl From<SystemTimeError> for Error {
     #[inline]
     fn from(_: SystemTimeError) -> Self {
@@ -535,6 +542,7 @@ impl From<SystemTimeError> for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for Error {}
 
 impl From<rand::GetRandomFailed> for Error {
@@ -549,15 +557,18 @@ impl From<rand::GetRandomFailed> for Error {
 /// exposing a provider specific error.
 ///
 /// Enums holding this type will never compare equal to each other.
+#[cfg(feature = "std")]
 #[derive(Debug, Clone)]
 pub struct OtherError(pub Arc<dyn StdError + Send + Sync>);
 
+#[cfg(feature = "std")]
 impl PartialEq<Self> for OtherError {
     fn eq(&self, _other: &Self) -> bool {
         false
     }
 }
 
+#[cfg(feature = "std")]
 impl From<OtherError> for Error {
     fn from(value: OtherError) -> Self {
         Self::Other(value)

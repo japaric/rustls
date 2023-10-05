@@ -337,6 +337,7 @@ pub struct InsufficientSizeError {
     pub required_size: usize,
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for EncodeError {}
 
 /// Previously encoded TLS data must be transmitted

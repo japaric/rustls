@@ -1,12 +1,18 @@
+#[cfg(feature = "std")]
 use crate::rand;
 use crate::server::ProducesTickets;
+#[cfg(feature = "std")]
 use crate::Error;
 
+#[cfg(feature = "std")]
 use pki_types::UnixTime;
 
 use alloc::boxed::Box;
+#[cfg(feature = "std")]
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
 use core::mem;
+#[cfg(feature = "std")]
 use std::sync::{Mutex, MutexGuard};
 
 pub(crate) struct TicketSwitcherState {
@@ -19,12 +25,14 @@ pub(crate) struct TicketSwitcherState {
 /// A ticketer that has a 'current' sub-ticketer and a single
 /// 'previous' ticketer.  It creates a new ticketer every so
 /// often, demoting the current ticketer.
+#[cfg(feature = "std")]
 pub struct TicketSwitcher {
     pub(crate) generator: fn() -> Result<Box<dyn ProducesTickets>, rand::GetRandomFailed>,
     lifetime: u32,
     state: Mutex<TicketSwitcherState>,
 }
 
+#[cfg(feature = "std")]
 impl TicketSwitcher {
     /// Creates a new `TicketSwitcher`, which rotates through sub-ticketers
     /// based on the passage of time.
@@ -132,6 +140,7 @@ impl TicketSwitcher {
     }
 }
 
+#[cfg(feature = "std")]
 impl ProducesTickets for TicketSwitcher {
     fn lifetime(&self) -> u32 {
         self.lifetime * 2

@@ -8,15 +8,18 @@ use crate::msgs::deframer::{Deframed, LlDeframed, LlMessageDeframer, MessageDefr
 use crate::msgs::handshake::Random;
 use crate::msgs::message::{Message, MessagePayload, PlainMessage};
 use crate::suites::{ExtractedSecrets, PartiallyExtractedSecrets};
+#[cfg(feature = "std")]
 use crate::vecbuf::ChunkVecBuffer;
 
 use alloc::boxed::Box;
 use core::fmt::Debug;
 use core::mem;
 use core::ops::{Deref, DerefMut};
+#[cfg(feature = "std")]
 use std::io;
 
 /// A client or server connection.
+#[cfg(feature = "std")]
 #[derive(Debug)]
 pub enum Connection {
     /// A client connection
@@ -25,6 +28,7 @@ pub enum Connection {
     Server(crate::server::ServerConnection),
 }
 
+#[cfg(feature = "std")]
 impl Connection {
     /// Read TLS content from `rd`.
     ///
@@ -108,6 +112,7 @@ impl Connection {
     }
 }
 
+#[cfg(feature = "std")]
 impl Deref for Connection {
     type Target = CommonState;
 
@@ -119,6 +124,7 @@ impl Deref for Connection {
     }
 }
 
+#[cfg(feature = "std")]
 impl DerefMut for Connection {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
@@ -129,12 +135,14 @@ impl DerefMut for Connection {
 }
 
 /// A structure that implements [`std::io::Read`] for reading plaintext.
+#[cfg(feature = "std")]
 pub struct Reader<'a> {
     received_plaintext: &'a mut ChunkVecBuffer,
     peer_cleanly_closed: bool,
     has_seen_eof: bool,
 }
 
+#[cfg(feature = "std")]
 impl<'a> io::Read for Reader<'a> {
     /// Obtain plaintext data received from the peer over this TLS connection.
     ///
@@ -225,12 +233,14 @@ impl<'a> io::Read for Reader<'a> {
 ///
 /// [`ServerConnection`]: crate::ServerConnection
 /// [`ClientConnection`]: crate::ClientConnection
+#[cfg(feature = "std")]
 pub(crate) trait PlaintextSink {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
     fn write_vectored(&mut self, bufs: &[io::IoSlice<'_>]) -> io::Result<usize>;
     fn flush(&mut self) -> io::Result<()>;
 }
 
+#[cfg(feature = "std")]
 impl<T> PlaintextSink for ConnectionCommon<T> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         Ok(self.send_some_plaintext(buf))
@@ -250,10 +260,12 @@ impl<T> PlaintextSink for ConnectionCommon<T> {
 }
 
 /// A structure that implements [`std::io::Write`] for writing plaintext.
+#[cfg(feature = "std")]
 pub struct Writer<'a> {
     sink: &'a mut dyn PlaintextSink,
 }
 
+#[cfg(feature = "std")]
 impl<'a> Writer<'a> {
     /// Create a new Writer.
     ///
@@ -264,6 +276,7 @@ impl<'a> Writer<'a> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> io::Write for Writer<'a> {
     /// Send the plaintext `buf` to the peer, encrypting
     /// and authenticating it.  Once this function succeeds
@@ -323,6 +336,7 @@ pub struct ConnectionCommon<Data> {
 
 impl<Data> ConnectionCommon<Data> {
     /// Returns an object that allows reading plaintext.
+    #[cfg(feature = "std")]
     pub fn reader(&mut self) -> Reader {
         let common = &mut self.core.common_state;
         Reader {
@@ -336,6 +350,7 @@ impl<Data> ConnectionCommon<Data> {
     }
 
     /// Returns an object that allows writing plaintext.
+    #[cfg(feature = "std")]
     pub fn writer(&mut self) -> Writer {
         Writer::new(self)
     }
@@ -369,6 +384,7 @@ impl<Data> ConnectionCommon<Data> {
     /// [`write_tls`]: ConnectionCommon::write_tls
     /// [`read_tls`]: ConnectionCommon::read_tls
     /// [`process_new_packets`]: ConnectionCommon::process_new_packets
+    #[cfg(feature = "std")]
     pub fn complete_io<T>(&mut self, io: &mut T) -> Result<(usize, usize), io::Error>
     where
         Self: Sized,
@@ -499,6 +515,7 @@ impl<Data> ConnectionCommon<Data> {
     ///
     /// [`process_new_packets()`]: ConnectionCommon::process_new_packets
     /// [`reader()`]: ConnectionCommon::reader
+    #[cfg(feature = "std")]
     pub fn read_tls(&mut self, rd: &mut dyn io::Read) -> Result<usize, io::Error> {
         if self.received_plaintext.is_full() {
             return Err(io::Error::new(
@@ -521,6 +538,7 @@ impl<Data> ConnectionCommon<Data> {
     ///
     /// After this function returns, the connection buffer may not yet be fully flushed. The
     /// [`CommonState::wants_write`] function can be used to check if the output buffer is empty.
+    #[cfg(feature = "std")]
     pub fn write_tls(&mut self, wr: &mut dyn io::Write) -> Result<usize, io::Error> {
         self.sendable_tls.write_to(wr)
     }

@@ -1,21 +1,29 @@
 #[cfg(feature = "ring")]
 use crate::crypto::ring;
+#[cfg(feature = "std")]
 use crate::dns_name::DnsNameRef;
+#[cfg(any(feature = "std", feature = "ring"))]
 use crate::error::Error;
+#[cfg(feature = "std")]
 use crate::limited_cache;
 use crate::server;
 use crate::server::ClientHello;
 use crate::sign;
+#[cfg(feature = "std")]
 use crate::webpki::{verify_server_name, ParsedCertificate};
+#[cfg(feature = "std")]
 use crate::ServerName;
 
 #[cfg(feature = "ring")]
 use pki_types::{CertificateDer, PrivateKeyDer};
 
+#[cfg(feature = "std")]
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+#[cfg(feature = "std")]
 use std::collections;
+#[cfg(feature = "std")]
 use std::sync::Mutex;
 
 /// Something which never stores sessions.
@@ -39,10 +47,12 @@ impl server::StoresServerSessions for NoServerSessionStorage {
 /// An implementer of `StoresServerSessions` that stores everything
 /// in memory.  If enforces a limit on the number of stored sessions
 /// to bound memory usage.
+#[cfg(feature = "std")]
 pub struct ServerSessionMemoryCache {
     cache: Mutex<limited_cache::LimitedCache<Vec<u8>, Vec<u8>>>,
 }
 
+#[cfg(feature = "std")]
 impl ServerSessionMemoryCache {
     /// Make a new ServerSessionMemoryCache.  `size` is the maximum
     /// number of stored sessions, and may be rounded-up for
@@ -54,6 +64,7 @@ impl ServerSessionMemoryCache {
     }
 }
 
+#[cfg(feature = "std")]
 impl server::StoresServerSessions for ServerSessionMemoryCache {
     fn put(&self, key: Vec<u8>, value: Vec<u8>) -> bool {
         self.cache
@@ -145,10 +156,12 @@ impl server::ResolvesServerCert for AlwaysResolvesChain {
 
 /// Something that resolves do different cert chains/keys based
 /// on client-supplied server name (via SNI).
+#[cfg(feature = "std")]
 pub struct ResolvesServerCertUsingSni {
     by_name: collections::HashMap<String, Arc<sign::CertifiedKey>>,
 }
 
+#[cfg(feature = "std")]
 impl ResolvesServerCertUsingSni {
     /// Create a new and empty (i.e., knows no certificates) resolver.
     pub fn new() -> Self {
@@ -191,6 +204,7 @@ impl ResolvesServerCertUsingSni {
     }
 }
 
+#[cfg(feature = "std")]
 impl server::ResolvesServerCert for ResolvesServerCertUsingSni {
     fn resolve(&self, client_hello: ClientHello) -> Option<Arc<sign::CertifiedKey>> {
         if let Some(name) = client_hello.server_name() {

@@ -1,5 +1,7 @@
 use crate::builder::{ConfigBuilder, WantsCipherSuites};
-use crate::common_state::{CommonState, Context, Side, State};
+#[cfg(feature = "std")]
+use crate::common_state::Context;
+use crate::common_state::{CommonState, Side, State};
 use crate::conn::{ConnectionCommon, ConnectionCore};
 use crate::crypto::{CryptoProvider, SupportedKxGroup};
 use crate::dns_name::DnsName;
@@ -11,19 +13,25 @@ use crate::msgs::base::Payload;
 use crate::msgs::handshake::{ClientHelloPayload, ProtocolName, ServerExtension};
 use crate::msgs::message::Message;
 use crate::sign;
-use crate::suites::{ExtractedSecrets, SupportedCipherSuite};
+#[cfg(feature = "std")]
+use crate::suites::ExtractedSecrets;
+use crate::suites::SupportedCipherSuite;
 use crate::vecbuf::ChunkVecBuffer;
 use crate::verify;
 use crate::KeyLog;
 
 use super::hs;
 
+use pki_types::UnixTime;
+
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
 use core::marker::PhantomData;
+#[cfg(feature = "std")]
 use core::ops::{Deref, DerefMut};
+#[cfg(feature = "std")]
 use std::io;
 
 /// A trait for the ability to store server session data.
@@ -313,6 +321,10 @@ pub struct ServerConfig {
     /// If this is 0, no tickets are sent and clients will not be able to
     /// do any resumption.
     pub send_tls13_tickets: usize,
+
+    /// Provides the current system time
+    #[cfg(not(feature = "std"))]
+    pub time_provider: crate::time_provider::TimeProvider,
 }
 
 // Avoid a `Clone` bound on `C`.
@@ -335,6 +347,8 @@ impl Clone for ServerConfig {
             max_early_data_size: self.max_early_data_size,
             send_half_rtt_data: self.send_half_rtt_data,
             send_tls13_tickets: self.send_tls13_tickets,
+            #[cfg(not(feature = "std"))]
+            time_provider: self.time_provider.clone(),
         }
     }
 }
@@ -385,6 +399,19 @@ impl ServerConfig {
                 .iter()
                 .any(|cs| cs.version().version == v)
     }
+
+    pub(super) fn get_current_time(&self) -> Result<UnixTime, Error> {
+        #[cfg(feature = "std")]
+        let now = UnixTime::now();
+
+        #[cfg(not(feature = "std"))]
+        let now = self
+            .time_provider
+            .get_current_time()
+            .map_err(|_| Error::FailedToGetCurrentTime)?;
+
+        Ok(now)
+    }
 }
 
 /// Allows reading of early data in resumed TLS1.3 connections.
@@ -392,16 +419,19 @@ impl ServerConfig {
 /// "Early data" is also known as "0-RTT data".
 ///
 /// This structure implements [`std::io::Read`].
+#[cfg(feature = "std")]
 pub struct ReadEarlyData<'a> {
     early_data: &'a mut EarlyDataState,
 }
 
+#[cfg(feature = "std")]
 impl<'a> ReadEarlyData<'a> {
     fn new(early_data: &'a mut EarlyDataState) -> Self {
         ReadEarlyData { early_data }
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> std::io::Read for ReadEarlyData<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.early_data.read(buf)
@@ -417,10 +447,12 @@ impl<'a> std::io::Read for ReadEarlyData<'a> {
 ///
 /// Send TLS-protected data to the peer using the `io::Write` trait implementation.
 /// Read data from the peer using the `io::Read` trait implementation.
+#[cfg(feature = "std")]
 pub struct ServerConnection {
     inner: ConnectionCommon<ServerConnectionData>,
 }
 
+#[cfg(feature = "std")]
 impl ServerConnection {
     /// Make a new ServerConnection.  `config` controls how
     /// we behave in the TLS protocol.
@@ -514,6 +546,7 @@ impl ServerConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl fmt::Debug for ServerConnection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ServerConnection")
@@ -521,6 +554,7 @@ impl fmt::Debug for ServerConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl Deref for ServerConnection {
     type Target = ConnectionCommon<ServerConnectionData>;
 
@@ -529,12 +563,14 @@ impl Deref for ServerConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl DerefMut for ServerConnection {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
+#[cfg(feature = "std")]
 impl From<ServerConnection> for crate::Connection {
     fn from(conn: ServerConnection) -> Self {
         Self::Server(conn)
@@ -587,10 +623,12 @@ impl From<ServerConnection> for crate::Connection {
 /// # }
 /// # }
 /// ```
+#[cfg(feature = "std")]
 pub struct Acceptor {
     inner: Option<ConnectionCommon<ServerConnectionData>>,
 }
 
+#[cfg(feature = "std")]
 impl Default for Acceptor {
     /// Return an empty Acceptor, ready to receive bytes from a new client connection.
     fn default() -> Self {
@@ -607,6 +645,7 @@ impl Default for Acceptor {
     }
 }
 
+#[cfg(feature = "std")]
 impl Acceptor {
     /// Read TLS content from `rd`.
     ///
@@ -686,6 +725,7 @@ impl Accepted {
     /// Takes the state returned from [`Acceptor::accept()`] as well as the [`ServerConfig`] and
     /// [`sign::CertifiedKey`] that should be used for the session. Returns an error if
     /// configuration-dependent validation of the received `ClientHello` message fails.
+    #[cfg(feature = "std")]
     pub fn into_connection(mut self, config: Arc<ServerConfig>) -> Result<ServerConnection, Error> {
         self.connection
             .set_max_fragment_size(config.max_fragment_size)?;
@@ -761,6 +801,7 @@ impl EarlyDataState {
         matches!(self, Self::Rejected)
     }
 
+    #[cfg(feature = "std")]
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             Self::Accepted(ref mut received) => received.read(buf),

@@ -1,8 +1,8 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use core::cmp;
-use std::io;
-use std::io::Read;
+#[cfg(feature = "std")]
+use std::io::{self, Read};
 
 /// This is a byte buffer that is built from a vector
 /// of byte vectors.  This avoids extra copies when
@@ -91,6 +91,7 @@ impl ChunkVecBuffer {
 
     /// Read data out of this object, writing it into `buf`
     /// and returning how many bytes were written there.
+    #[cfg(feature = "std")]
     pub(crate) fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let mut offs = 0;
 
@@ -132,6 +133,7 @@ impl ChunkVecBuffer {
     }
 
     /// Read data out of this object, passing it `wr`
+    #[cfg(feature = "std")]
     pub(crate) fn write_to(&mut self, wr: &mut dyn io::Write) -> io::Result<usize> {
         if self.is_empty() {
             return Ok(0);
