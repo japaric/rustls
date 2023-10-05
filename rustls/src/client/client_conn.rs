@@ -627,6 +627,7 @@ impl DerefMut for ClientConnection {
     }
 }
 
+#[cfg(feature = "std")]
 #[doc(hidden)]
 impl<'a> TryFrom<&'a mut crate::Connection> for &'a mut ClientConnection {
     type Error = ();
@@ -640,6 +641,7 @@ impl<'a> TryFrom<&'a mut crate::Connection> for &'a mut ClientConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<ClientConnection> for crate::Connection {
     fn from(conn: ClientConnection) -> Self {
         Self::Client(conn)
