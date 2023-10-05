@@ -531,6 +531,7 @@ pub mod server {
     pub use crate::webpki::WebPkiClientVerifier;
     pub use crate::webpki::{ClientCertVerifierBuilder, VerifierBuilderError};
     pub use builder::WantsServerCert;
+    #[cfg(feature = "std")]
     pub use handy::ResolvesServerCertUsingSni;
     pub use handy::{NoServerSessionStorage, ServerSessionMemoryCache};
     pub use server_conn::StoresServerSessions;
