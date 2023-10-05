@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::ops::Range;
+#[cfg(feature = "std")]
 use std::io;
 
 use super::base::Payload;
@@ -298,6 +299,7 @@ impl MessageDeframer {
 
     /// Read some bytes from `rd`, and add them to our internal buffer.
     #[allow(clippy::comparison_chain)]
+    #[cfg(feature = "std")]
     pub fn read(&mut self, rd: &mut dyn io::Read) -> io::Result<usize> {
         if let Err(err) = self.prepare_read() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, err));

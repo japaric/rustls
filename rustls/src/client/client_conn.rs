@@ -1,8 +1,12 @@
 use crate::builder::{ConfigBuilder, WantsCipherSuites};
 use crate::common_state::{CommonState, Protocol, Side};
-use crate::conn::{ConnectionCommon, ConnectionCore};
+#[cfg(feature = "std")]
+use crate::conn::ConnectionCommon;
+use crate::conn::ConnectionCore;
 use crate::crypto::{CryptoProvider, SupportedKxGroup};
-use crate::dns_name::{DnsName, DnsNameRef, InvalidDnsNameError};
+#[cfg(feature = "std")]
+use crate::dns_name::InvalidDnsNameError;
+use crate::dns_name::{DnsName, DnsNameRef};
 use crate::enums::{CipherSuite, ProtocolVersion, SignatureScheme};
 use crate::error::Error;
 #[cfg(feature = "logging")]
@@ -11,21 +15,29 @@ use crate::msgs::enums::NamedGroup;
 use crate::msgs::handshake::ClientExtension;
 use crate::msgs::persist;
 use crate::sign;
-use crate::suites::{ExtractedSecrets, SupportedCipherSuite};
+#[cfg(feature = "std")]
+use crate::suites::ExtractedSecrets;
+use crate::suites::SupportedCipherSuite;
 use crate::verify;
 use crate::versions;
 use crate::KeyLog;
 
-use super::handy::{ClientSessionMemoryCache, NoClientSessionStorage};
+#[cfg(feature = "std")]
+use super::handy::ClientSessionMemoryCache;
+use super::handy::NoClientSessionStorage;
 use super::hs;
 
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
 use core::marker::PhantomData;
+#[cfg(feature = "std")]
 use core::mem;
+#[cfg(feature = "std")]
 use core::ops::{Deref, DerefMut};
+#[cfg(feature = "std")]
 use std::io;
+#[cfg(feature = "std")]
 use std::net::IpAddr;
 
 /// A trait for the ability to store client session data, so that sessions
@@ -196,6 +208,10 @@ pub struct ClientConfig {
     ///
     /// The default is false.
     pub enable_early_data: bool,
+
+    /// Provides the current system time
+    #[cfg(not(feature = "std"))]
+    pub time_provider: crate::time_provider::TimeProvider,
 }
 
 /// What mechanisms to support for resuming a TLS 1.2 session.
@@ -230,6 +246,8 @@ impl Clone for ClientConfig {
             key_log: Arc::clone(&self.key_log),
             enable_secret_extraction: self.enable_secret_extraction,
             enable_early_data: self.enable_early_data,
+            #[cfg(not(feature = "std"))]
+            time_provider: self.time_provider.clone(),
         }
     }
 }
@@ -317,6 +335,7 @@ impl Resumption {
     ///
     /// This is the default `Resumption` choice, and enables resuming a TLS 1.2 session with
     /// a session id or RFC 5077 ticket.
+    #[cfg(feature = "std")]
     pub fn in_memory_sessions(num: usize) -> Self {
         Self {
             store: Arc::new(ClientSessionMemoryCache::new(num)),
@@ -363,7 +382,13 @@ impl Default for Resumption {
     /// Create an in-memory session store resumption with up to 256 server names, allowing
     /// a TLS 1.2 session to resume with a session id or RFC 5077 ticket.
     fn default() -> Self {
-        Self::in_memory_sessions(256)
+        #[cfg(feature = "std")]
+        let ret = Self::in_memory_sessions(256);
+
+        #[cfg(not(feature = "std"))]
+        let ret = Self::disabled();
+
+        ret
     }
 }
 
@@ -397,7 +422,11 @@ pub enum ServerName {
 
     /// The server is identified by an IP address. SNI is not
     /// done.
+    #[cfg(feature = "std")]
     IpAddress(IpAddr),
+
+    /// Same as the `IpAddress` variant, which is a wrapper around `std::net::IpAddr`, but no-std compatible
+    NoStdIpAddress(webpki::IpAddr),
 }
 
 impl fmt::Debug for ServerName {
@@ -407,8 +436,13 @@ impl fmt::Debug for ServerName {
                 .debug_tuple("DnsName")
                 .field(&d.as_ref())
                 .finish(),
+            #[cfg(feature = "std")]
             Self::IpAddress(i) => f
                 .debug_tuple("IpAddress")
+                .field(i)
+                .finish(),
+            Self::NoStdIpAddress(i) => f
+                .debug_tuple("NoStdIpAddress")
                 .field(i)
                 .finish(),
         }
@@ -422,13 +456,16 @@ impl ServerName {
     pub(crate) fn for_sni(&self) -> Option<DnsNameRef> {
         match self {
             Self::DnsName(dns_name) => Some(dns_name.borrow()),
+            #[cfg(feature = "std")]
             Self::IpAddress(_) => None,
+            Self::NoStdIpAddress(_) => None,
         }
     }
 }
 
 /// Attempt to make a ServerName from a string by parsing
 /// it as a DNS name.
+#[cfg(feature = "std")]
 impl TryFrom<&str> for ServerName {
     type Error = InvalidDnsNameError;
     fn try_from(s: &str) -> Result<Self, Self::Error> {
@@ -522,6 +559,7 @@ impl EarlyData {
         }
     }
 
+    #[cfg(feature = "std")]
     fn check_write(&mut self, sz: usize) -> io::Result<usize> {
         match self.state {
             EarlyDataState::Disabled => unreachable!(),
@@ -547,10 +585,12 @@ impl EarlyData {
 }
 
 /// Stub that implements io::Write and dispatches to `write_early_data`.
+#[cfg(feature = "std")]
 pub struct WriteEarlyData<'a> {
     sess: &'a mut ClientConnection,
 }
 
+#[cfg(feature = "std")]
 impl<'a> WriteEarlyData<'a> {
     fn new(sess: &'a mut ClientConnection) -> WriteEarlyData<'a> {
         WriteEarlyData { sess }
@@ -568,6 +608,7 @@ impl<'a> WriteEarlyData<'a> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> io::Write for WriteEarlyData<'a> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.sess.write_early_data(buf)
@@ -579,10 +620,12 @@ impl<'a> io::Write for WriteEarlyData<'a> {
 }
 
 /// This represents a single TLS client connection.
+#[cfg(feature = "std")]
 pub struct ClientConnection {
     inner: ConnectionCommon<ClientConnectionData>,
 }
 
+#[cfg(feature = "std")]
 impl fmt::Debug for ClientConnection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("ClientConnection")
@@ -590,6 +633,7 @@ impl fmt::Debug for ClientConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl ClientConnection {
     /// Make a new ClientConnection.  `config` controls how
     /// we behave in the TLS protocol, `name` is the
@@ -660,6 +704,7 @@ impl ClientConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl Deref for ClientConnection {
     type Target = ConnectionCommon<ClientConnectionData>;
 
@@ -668,12 +713,14 @@ impl Deref for ClientConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl DerefMut for ClientConnection {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
+#[cfg(feature = "std")]
 #[doc(hidden)]
 impl<'a> TryFrom<&'a mut crate::Connection> for &'a mut ClientConnection {
     type Error = ();
@@ -687,6 +734,7 @@ impl<'a> TryFrom<&'a mut crate::Connection> for &'a mut ClientConnection {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<ClientConnection> for crate::Connection {
     fn from(conn: ClientConnection) -> Self {
         Self::Client(conn)

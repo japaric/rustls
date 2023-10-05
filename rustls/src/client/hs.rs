@@ -30,6 +30,7 @@ use crate::client::client_conn::ClientConnectionData;
 use crate::client::common::ClientHelloDetails;
 use crate::client::{tls13, ClientConfig, ServerName};
 
+#[cfg(feature = "std")]
 use pki_types::UnixTime;
 
 use alloc::borrow::ToOwned;
@@ -68,7 +69,16 @@ fn find_session(
             None
         })
         .and_then(|resuming| {
-            let retrieved = persist::Retrieved::new(resuming, UnixTime::now());
+            #[cfg(feature = "std")]
+            let now = UnixTime::now();
+
+            #[cfg(not(feature = "std"))]
+            let now = config
+                .time_provider
+                .get_current_time()
+                .ok()?;
+
+            let retrieved = persist::Retrieved::new(resuming, now);
             match retrieved.has_expired() {
                 false => Some(retrieved),
                 true => None,

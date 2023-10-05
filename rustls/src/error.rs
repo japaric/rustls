@@ -4,10 +4,13 @@ use crate::rand;
 
 use alloc::format;
 use alloc::string::String;
+#[cfg(feature = "std")]
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
+#[cfg(feature = "std")]
 use std::error::Error as StdError;
+#[cfg(feature = "std")]
 use std::time::SystemTimeError;
 
 /// rustls reports protocol errors using this type.
@@ -331,7 +334,7 @@ pub enum CertificateError {
     /// not covered by the above common cases.
     ///
     /// Enums holding this variant will never compare equal to each other.
-    Other(Arc<dyn StdError + Send + Sync>),
+    Other(#[cfg(feature = "std")] Arc<dyn StdError + Send + Sync>),
 }
 
 impl PartialEq<Self> for CertificateError {
@@ -377,7 +380,7 @@ impl From<CertificateError> for AlertDescription {
             // certificate_unknown
             //  Some other (unspecified) issue arose in processing the
             //  certificate, rendering it unacceptable.
-            Other(_) => Self::CertificateUnknown,
+            Other(..) => Self::CertificateUnknown,
         }
     }
 }
@@ -408,7 +411,7 @@ pub enum CertRevocationListError {
     /// The CRL is invalid for some other reason.
     ///
     /// Enums holding this variant will never compare equal to each other.
-    Other(Arc<dyn StdError + Send + Sync>),
+    Other(#[cfg(feature = "std")] Arc<dyn StdError + Send + Sync>),
 
     /// The CRL is not correctly encoded.
     ParseError,
@@ -518,6 +521,7 @@ impl fmt::Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<SystemTimeError> for Error {
     #[inline]
     fn from(_: SystemTimeError) -> Self {
@@ -525,6 +529,7 @@ impl From<SystemTimeError> for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for Error {}
 
 impl From<rand::GetRandomFailed> for Error {

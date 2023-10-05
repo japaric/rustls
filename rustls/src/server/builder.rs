@@ -107,7 +107,10 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             cert_resolver,
             ignore_client_order: false,
             max_fragment_size: None,
+            #[cfg(feature = "std")]
             session_storage: handy::ServerSessionMemoryCache::new(256),
+            #[cfg(not(feature = "std"))]
+            session_storage: Arc::new(handy::NoServerSessionStorage {}),
             ticketer: Arc::new(handy::NeverProducesTickets {}),
             alpn_protocols: Vec::new(),
             versions: self.state.versions,
@@ -116,6 +119,8 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             max_early_data_size: 0,
             send_half_rtt_data: false,
             send_tls13_tickets: 4,
+            #[cfg(not(feature = "std"))]
+            time_provider: crate::time_provider::TimeProvider::none(),
         }
     }
 }

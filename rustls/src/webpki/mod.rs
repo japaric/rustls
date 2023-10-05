@@ -1,8 +1,10 @@
+#[cfg(feature = "std")]
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
 
 use pki_types::CertificateRevocationListDer;
+#[cfg(feature = "std")]
 use std::error::Error as StdError;
 use webpki::{CertRevocationList, OwnedCertRevocationList};
 
@@ -59,6 +61,7 @@ impl fmt::Display for VerifierBuilderError {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for VerifierBuilderError {}
 
 fn pki_error(error: webpki::Error) -> Error {
@@ -83,7 +86,11 @@ fn pki_error(error: webpki::Error) -> Error {
             CertRevocationListError::BadSignature.into()
         }
 
-        _ => CertificateError::Other(Arc::new(error)).into(),
+        _ => CertificateError::Other(
+            #[cfg(feature = "std")]
+            Arc::new(error),
+        )
+        .into(),
     }
 }
 
@@ -103,7 +110,10 @@ fn crl_error(e: webpki::Error) -> CertRevocationListError {
         UnsupportedIndirectCrl => CertRevocationListError::UnsupportedIndirectCrl,
         UnsupportedRevocationReason => CertRevocationListError::UnsupportedRevocationReason,
 
-        _ => CertRevocationListError::Other(Arc::new(e)),
+        _ => CertRevocationListError::Other(
+            #[cfg(feature = "std")]
+            Arc::new(e),
+        ),
     }
 }
 
