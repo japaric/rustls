@@ -550,3 +550,6 @@ pub mod quic;
 
 /// This is the rustls manual.
 pub mod manual;
+
+#[cfg(not(feature = "std"))]
+pub mod time_provider;
