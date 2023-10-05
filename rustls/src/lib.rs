@@ -376,6 +376,7 @@ mod enums;
 mod key_log;
 mod key_log_file;
 mod suites;
+#[cfg(feature = "std")]
 mod ticketer;
 mod versions;
 mod webpki;
@@ -454,6 +455,7 @@ pub use crate::stream::{Stream, StreamOwned};
 pub use crate::suites::{
     CipherSuiteCommon, ConnectionTrafficSecrets, ExtractedSecrets, SupportedCipherSuite,
 };
+#[cfg(feature = "std")]
 pub use crate::ticketer::TicketSwitcher;
 #[cfg(feature = "tls12")]
 pub use crate::tls12::Tls12CipherSuite;
