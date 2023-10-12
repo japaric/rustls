@@ -1,0 +1,29 @@
+[build]
+target = "aarch64-unknown-none"
+# target = "x86_64-unknown-none"
+
+[target.aarch64-unknown-none]
+runner = "qemu-aarch64-static -L /usr/aarch64-linux-gnu"
+rustflags = [
+  # link to libc
+  "-C", "link-args=-lc",
+  "-C", "linker-flavor=gcc",
+  "-C", "linker=aarch64-linux-gnu-gcc",
+]
+
+# was not able to compile `curve25520_dalek` to this target so use the `aarch64` one
+[target.x86_64-unknown-none]
+rustflags = [
+  # disables `poly1305`'s AVX optimizations.
+  # the `x86_64-unknown-none` target lacks AVX instructions and this crate fails to build for that target
+  # "--cfg", "poly1305_force_soft",
+
+  # disables `curve25520_dalek`'s SIMD optimizations.
+  # the `x86_64-unknown-none` target lacks SIMD instructions and this crate fails to build for that target
+  # "--cfg", 'curve25519_dalek_backend="serial"',
+
+  # link to libc
+  "-C", "link-args=-lc",
+  "-C", "linker-flavor=gcc",
+  "-C", "linker=cc",
+]
