@@ -177,6 +177,7 @@ impl OpenConnection {
         // see if the backend is readable too.
         if ev.is_readable() {
             self.do_tls_read();
+            self.try_early_data_read();
             self.try_plain_read();
             self.try_back_read();
         }
@@ -251,7 +252,7 @@ impl OpenConnection {
                     .unwrap();
 
                 debug!("plaintext read {:?}", buf.len());
-                self.incoming_plaintext(&buf);
+                self.incoming_plaintext(&buf, false);
             }
         }
     }
@@ -291,8 +292,19 @@ impl OpenConnection {
         };
     }
 
+    fn try_early_data_read(&mut self) {
+        if let Some(mut reader) = self.tls_conn.early_data() {
+            let mut buf = Vec::new();
+            reader.read_to_end(&mut buf).unwrap();
+            if !buf.is_empty() {
+                debug!("early data read {:?}", buf.len());
+                self.incoming_plaintext(&buf, true);
+            }
+        }
+    }
+
     /// Process some amount of received plaintext.
-    fn incoming_plaintext(&mut self, buf: &[u8]) {
+    fn incoming_plaintext(&mut self, buf: &[u8], is_early_data: bool) {
         match self.mode {
             ServerMode::Echo => {
                 self.tls_conn
@@ -301,7 +313,7 @@ impl OpenConnection {
                     .unwrap();
             }
             ServerMode::Http => {
-                self.send_http_response_once();
+                self.send_http_response_once(is_early_data);
             }
             ServerMode::Forward(_) => {
                 self.back
@@ -313,7 +325,7 @@ impl OpenConnection {
         }
     }
 
-    fn send_http_response_once(&mut self) {
+    fn send_http_response_once(&mut self, is_early_data: bool) {
         let response =
             b"HTTP/1.0 200 OK\r\nConnection: close\r\n\r\nHello world from rustls tlsserver\r\n";
         if !self.sent_http_response {
@@ -322,7 +334,9 @@ impl OpenConnection {
                 .write_all(response)
                 .unwrap();
             self.sent_http_response = true;
-            self.tls_conn.send_close_notify();
+            if !is_early_data {
+                self.tls_conn.send_close_notify();
+            }
         }
     }
 
@@ -420,32 +434,34 @@ Usage:
   tlsserver-mio (--help | -h)
 
 Options:
-    -p, --port PORT     Listen on PORT [default: 443].
-    --certs CERTFILE    Read server certificates from CERTFILE.
-                        This should contain PEM-format certificates
-                        in the right order (the first certificate should
-                        certify KEYFILE, the last should be a root CA).
-    --key KEYFILE       Read private key from KEYFILE.  This should be a RSA
-                        private key or PKCS8-encoded private key, in PEM format.
-    --ocsp OCSPFILE     Read DER-encoded OCSP response from OCSPFILE and staple
-                        to certificate.  Optional.
-    --auth CERTFILE     Enable client authentication, and accept certificates
-                        signed by those roots provided in CERTFILE.
-    --crl CRLFILE ...   Perform client certificate revocation checking using the DER-encoded
-                        CRLFILE. May be used multiple times.
-    --require-auth      Send a fatal alert if the client does not complete client
-                        authentication.
-    --resumption        Support session resumption.
-    --tickets           Support tickets.
-    --protover VERSION  Disable default TLS version list, and use
-                        VERSION instead.  May be used multiple times.
-    --suite SUITE       Disable default cipher suite list, and use
-                        SUITE instead.  May be used multiple times.
-    --proto PROTOCOL    Negotiate PROTOCOL using ALPN.
-                        May be used multiple times.
-    --verbose           Emit log output.
-    --version, -v       Show tool version.
-    --help, -h          Show this screen.
+    -p, --port PORT        Listen on PORT [default: 443].
+    --certs CERTFILE       Read server certificates from CERTFILE.
+                           This should contain PEM-format certificates
+                           in the right order (the first certificate should
+                           certify KEYFILE, the last should be a root CA).
+    --key KEYFILE          Read private key from KEYFILE.  This should be a RSA
+                           private key or PKCS8-encoded private key, in PEM format.
+    --ocsp OCSPFILE        Read DER-encoded OCSP response from OCSPFILE and staple
+                           to certificate.  Optional.
+    --auth CERTFILE        Enable client authentication, and accept certificates
+                           signed by those roots provided in CERTFILE.
+    --crl CRLFILE ...      Perform client certificate revocation checking using the DER-encoded
+                           CRLFILE. May be used multiple times.
+    --require-auth         Send a fatal alert if the client does not complete client
+                           authentication.
+    --resumption           Support session resumption.
+    --tickets              Support tickets.
+    --protover VERSION     Disable default TLS version list, and use
+                           VERSION instead.  May be used multiple times.
+    --suite SUITE          Disable default cipher suite list, and use
+                           SUITE instead.  May be used multiple times.
+    --proto PROTOCOL       Negotiate PROTOCOL using ALPN.
+                           May be used multiple times.
+    --max-early-data MAX   Set the maximum amount of early data bytes that can be received [default: 0].
+    --send-half-rtt-data   Allow sending data before the handshake is done.
+    --verbose              Emit log output.
+    --version, -v          Show tool version.
+    --help, -h             Show this screen.
 ";
 
 #[derive(Debug, Deserialize)]
@@ -465,6 +481,8 @@ struct Args {
     flag_require_auth: bool,
     flag_resumption: bool,
     flag_tickets: bool,
+    flag_max_early_data: Option<u32>,
+    flag_send_half_rtt_data: bool, 
     arg_fport: Option<u16>,
 }
 
@@ -634,6 +652,14 @@ fn make_config(args: &Args) -> Arc<rustls::ServerConfig<Ring>> {
 
     if args.flag_tickets {
         config.ticketer = rustls::Ticketer::new().unwrap();
+    }
+
+    if let Some(max_early_data) = args.flag_max_early_data {
+        config.max_early_data_size = max_early_data;
+    }
+
+    if args.flag_send_half_rtt_data {
+        config.send_half_rtt_data = true;
     }
 
     config.alpn_protocols = args
