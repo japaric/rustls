@@ -1,0 +1,22 @@
+[package]
+edition = "2021"
+name = "demo"
+publish = false
+version = "0.0.0"
+
+[dependencies]
+chacha20poly1305 = "0.10.1"
+der = "0.7.8"
+hmac = "0.12.1"
+pki-types = { package = "rustls-pki-types", version = "0.2.1" }
+rand_core = "0.6.4"
+rsa = { version = "0.9.2", default-features = false, features = ["sha2"] }
+rustls-webpki = { version =  "=0.102.0-alpha.4", default-features = false }
+sha2 = { version = "0.10.8", default-features = false }
+x25519-dalek = "2.0.0"
+
+# TODO use a crates.io release
+webpki-roots = { git = "https://github.com/japaric/webpki-roots", branch = "no-std-support" }
+# FIXME use `path = "../../rustls"`; this is currently using a git dependency to keep the commit history (wrt to main) short
+rustls = { git = "https://github.com/japaric/rustls", branch = "no-std-support", default-features = false }
+ministd = { path = "../ministd"  }
