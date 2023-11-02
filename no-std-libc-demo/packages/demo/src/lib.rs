@@ -6,12 +6,9 @@ use alloc::sync::Arc;
 
 use ministd::time::{SystemTime, UNIX_EPOCH};
 use pki_types::UnixTime;
-use rustls::cipher_suite::CipherSuiteCommon;
 use rustls::client::danger::ServerCertVerifier;
-use rustls::client::WebPkiServerVerifier;
 use rustls::crypto::CryptoProvider;
 use rustls::time_provider::{GetCurrentTime, TimeProvider};
-use rustls::{CipherSuite, SupportedCipherSuite, Tls13CipherSuite};
 
 mod aead;
 mod hash;
@@ -41,7 +38,8 @@ impl CryptoProvider for DemoCryptoProvider {
     }
 }
 
-static ALL_CIPHER_SUITES: &[rustls::SupportedCipherSuite] = &[TLS13_CHACHA20_POLY1305_SHA256];
+static ALL_CIPHER_SUITES: &[rustls::SupportedCipherSuite] =
+    &[TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256];
 
 pub fn time_provider() -> TimeProvider {
     TimeProvider::new(DemoTimeProvider)
@@ -58,19 +56,24 @@ impl GetCurrentTime for DemoTimeProvider {
     }
 }
 
-static TLS13_CHACHA20_POLY1305_SHA256: SupportedCipherSuite =
-    SupportedCipherSuite::Tls13(&Tls13CipherSuite {
-        common: CipherSuiteCommon {
-            suite: CipherSuite::TLS13_CHACHA20_POLY1305_SHA256,
+pub static TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256: rustls::SupportedCipherSuite =
+    rustls::SupportedCipherSuite::Tls12(&rustls::Tls12CipherSuite {
+        common: rustls::cipher_suite::CipherSuiteCommon {
+            suite: rustls::CipherSuite::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
             hash_provider: &hash::Sha256,
         },
-        hmac_provider: &hmac::Sha256Hmac,
+        kx: rustls::crypto::KeyExchangeAlgorithm::ECDHE,
+        sign: &[
+            rustls::SignatureScheme::RSA_PSS_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+        ],
+        prf_provider: &rustls::crypto::tls12::PrfUsingHmac(&hmac::Sha256Hmac),
         aead_alg: &aead::Chacha20Poly1305,
     });
 
 pub fn certificate_verifier(roots: rustls::RootCertStore) -> Arc<dyn ServerCertVerifier> {
-    Arc::new(WebPkiServerVerifier::new_with_algorithms(
-        roots,
-        verify::ALGORITHMS,
-    ))
+    rustls::client::WebPkiServerVerifier::builder(roots.into())
+        .with_signature_verification_algorithms(verify::ALGORITHMS)
+        .build()
+        .unwrap()
 }
