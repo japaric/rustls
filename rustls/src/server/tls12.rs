@@ -530,6 +530,16 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         trace!("certs {:?}", cert_chain);
 
+        #[cfg(feature = "std")]
+        let now = UnixTime::now();
+
+        #[cfg(not(feature = "std"))]
+        let now = self
+            .config
+            .time_provider
+            .get_current_time()
+            .map_err(|_| Error::FailedToGetCurrentTime)?;
+
         let client_cert = match cert_chain.split_first() {
             None if mandatory => {
                 return Err(cx.common.send_fatal_alert(
@@ -545,7 +555,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
             Some((end_entity, intermediates)) => {
                 self.config
                     .verifier
-                    .verify_client_cert(end_entity, intermediates, UnixTime::now())
+                    .verify_client_cert(end_entity, intermediates, now)
                     .map_err(|err| {
                         cx.common
                             .send_cert_verify_error_alert(err)
@@ -778,8 +788,13 @@ fn emit_ticket(
     cx: &mut ServerContext<'_>,
     ticketer: &dyn ProducesTickets,
 ) -> Result<(), Error> {
-    let plain =
-        get_server_connection_value_tls12(secrets, using_ems, cx, UnixTime::now()).get_encoding();
+    #[cfg(feature = "std")]
+    let now = UnixTime::now();
+
+    #[cfg(not(feature = "std"))]
+    let now = todo!();
+
+    let plain = get_server_connection_value_tls12(secrets, using_ems, cx, now).get_encoding();
 
     // If we can't produce a ticket for some reason, we can't
     // report an error. Send an empty one.
@@ -866,12 +881,17 @@ impl State<ServerConnectionData> for ExpectFinished {
 
         // Save connection, perhaps
         if !self.resuming && !self.session_id.is_empty() {
-            let value = get_server_connection_value_tls12(
-                &self.secrets,
-                self.using_ems,
-                cx,
-                UnixTime::now(),
-            );
+            #[cfg(feature = "std")]
+            let now = UnixTime::now();
+
+            #[cfg(not(feature = "std"))]
+            let now = self
+                .config
+                .time_provider
+                .get_current_time()
+                .map_err(|_| Error::FailedToGetCurrentTime)?;
+
+            let value = get_server_connection_value_tls12(&self.secrets, self.using_ems, cx, now);
 
             let worked = self
                 .config

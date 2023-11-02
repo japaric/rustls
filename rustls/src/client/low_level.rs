@@ -1,11 +1,10 @@
 //! FIXME: docs
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::{Deref, DerefMut};
-use pki_types::UnixTime;
-use std::sync::Arc;
 
 use crate::check::{inappropriate_handshake_message, inappropriate_message};
 use crate::conn::ConnectionRandoms;
@@ -20,7 +19,7 @@ use crate::msgs::codec::{Codec, Reader};
 use crate::msgs::enums::{Compression, ECPointFormat};
 use crate::msgs::handshake::{
     CertificateStatusRequest, ClientExtension, ClientHelloPayload, HandshakeMessagePayload,
-    HandshakePayload, Random, ServerECDHParams, ServerKeyExchangePayload, SessionId,
+    HandshakePayload, Random, ServerEcdhParams, ServerKeyExchangePayload, SessionId,
 };
 use crate::msgs::message::{Message, MessagePayload};
 use crate::tls12::ConnectionSecrets;
@@ -93,7 +92,7 @@ impl EmitState for EmitClientHello {
                 compression_methods: vec![Compression::Null],
                 extensions: vec![
                     ClientExtension::SupportedVersions(supported_versions),
-                    ClientExtension::ECPointFormats(ECPointFormat::SUPPORTED.to_vec()),
+                    ClientExtension::EcPointFormats(ECPointFormat::SUPPORTED.to_vec()),
                     ClientExtension::NamedGroups(
                         self.config
                             .kx_groups
@@ -202,13 +201,21 @@ impl ExpectState for ExpectCertificate {
             HandshakePayload::Certificate
         )?;
 
-        if let Err(error) = self.config.verifier.verify_server_cert(
-            &payload[0],
-            &[],
-            &self.name,
-            &[],
-            UnixTime::now(),
-        ) {
+        #[cfg(feature = "std")]
+        let now = UnixTime::now();
+
+        #[cfg(not(feature = "std"))]
+        let now = self
+            .config
+            .time_provider
+            .get_current_time()
+            .map_err(|_| Error::FailedToGetCurrentTime)?;
+
+        if let Err(error) =
+            self.config
+                .verifier
+                .verify_server_cert(&payload[0], &[], &self.name, &[], now)
+        {
             Ok(ConnectionState::emit_alert(
                 match &error {
                     Error::InvalidCertificate(e) => e.clone().into(),
@@ -309,7 +316,7 @@ impl ExpectState for ExpectServerHelloDone {
                 ecdhe.params.encode(&mut kx_params);
 
                 let mut rd = Reader::init(&kx_params);
-                let ecdh_params = ServerECDHParams::read(&mut rd)?;
+                let ecdh_params = ServerEcdhParams::read(&mut rd)?;
 
                 if rd.any_left() {
                     return Ok(ConnectionState::emit_alert(
@@ -361,7 +368,7 @@ impl ExpectState for ExpectServerHelloDone {
 struct EmitClientKeyExchange {
     suite: &'static Tls12CipherSuite,
     kx: Box<dyn ActiveKeyExchange>,
-    ecdh_params: ServerECDHParams,
+    ecdh_params: ServerEcdhParams,
     randoms: ConnectionRandoms,
     transcript: HandshakeHash,
 }

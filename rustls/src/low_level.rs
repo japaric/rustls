@@ -15,7 +15,6 @@ use crate::msgs::message::MessageError;
 use crate::{
     msgs::{
         fragmenter::MessageFragmenter,
-        handshake::HandshakeMessagePayload,
         message::{Message, MessagePayload},
     },
     Error, ProtocolVersion,
@@ -299,7 +298,6 @@ impl LlConnectionCommon {
         } else if alert.description == AlertDescription::CloseNotify {
             ConnectionState::ConnectionClosed
         } else if alert.level == AlertLevel::Warning {
-            std::println!("TLS alert warning received: {:#?}", alert);
             curr_state
         } else {
             return Err(Error::AlertReceived(alert.description));
@@ -473,6 +471,7 @@ impl core::fmt::Display for EncodeError {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for EncodeError {}
 
 impl<'c> MustEncodeTlsData<'c> {
@@ -591,13 +590,4 @@ impl GeneratedMessage {
     }
 }
 
-fn log_msg(msg: &Message, read: bool) {
-    let verb = if read { "Read" } else { "Emit" };
-    match &msg.payload {
-        MessagePayload::Handshake {
-            parsed: HandshakeMessagePayload { typ, .. },
-            ..
-        } => std::println!("{} Handshake::{:?}", verb, typ),
-        payload => std::println!("{} {:?}", verb, payload.content_type()),
-    };
-}
+fn log_msg(_msg: &Message, _read: bool) {}
