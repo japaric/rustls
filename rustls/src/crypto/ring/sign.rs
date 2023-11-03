@@ -403,6 +403,7 @@ impl fmt::Display for InvalidKeyError {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for InvalidKeyError {}
 
 #[cfg(test)]
