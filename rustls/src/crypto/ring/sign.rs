@@ -356,6 +356,7 @@ impl fmt::Display for SignError {
     }
 }
 
+#[cfg(feature = "std")]
 impl StdError for SignError {}
 
 #[cfg(test)]

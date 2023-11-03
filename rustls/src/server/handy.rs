@@ -2,7 +2,7 @@
 use crate::crypto::ring;
 #[cfg(feature = "std")]
 use crate::dns_name::DnsNameRef;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", feature = "ring"))]
 use crate::error::Error;
 #[cfg(feature = "std")]
 use crate::limited_cache;
