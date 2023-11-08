@@ -1,9 +1,10 @@
-use crate::common_state::{CommonState, Context, IoState, State};
+use crate::common_state::{CommonState, CommonState2, Context, IoState, LlCommonState, State};
 use crate::enums::{AlertDescription, ContentType};
 use crate::error::{Error, PeerMisbehaved};
+use crate::ll::LlDeferredActions;
 #[cfg(feature = "logging")]
 use crate::log::trace;
-use crate::msgs::deframer::{Deframed, MessageDeframer};
+use crate::msgs::deframer::{Deframed, LlDeframed, LlMessageDeframer, MessageDeframer};
 use crate::msgs::handshake::Random;
 use crate::msgs::message::{Message, MessagePayload, PlainMessage};
 use crate::suites::{ExtractedSecrets, PartiallyExtractedSecrets};
@@ -325,12 +326,12 @@ impl<Data> ConnectionCommon<Data> {
     pub fn reader(&mut self) -> Reader {
         let common = &mut self.core.common_state;
         Reader {
-            received_plaintext: &mut common.received_plaintext,
             // Are we done? i.e., have we processed all received messages, and received a
             // close_notify to indicate that no new messages will arrive?
             peer_cleanly_closed: common.has_received_close_notify
                 && !self.core.message_deframer.has_pending(),
             has_seen_eof: common.has_seen_eof,
+            received_plaintext: &mut common.received_plaintext,
         }
     }
 
@@ -552,14 +553,14 @@ impl<Data> ConnectionCommon<Data> {
 
     /// Extract secrets, so they can be used when configuring kTLS, for example.
     /// Should be used with care as it exposes secret key material.
-    pub fn dangerous_extract_secrets(self) -> Result<ExtractedSecrets, Error> {
+    pub fn dangerous_extract_secrets(mut self) -> Result<ExtractedSecrets, Error> {
         if !self.enable_secret_extraction {
             return Err(Error::General("Secret extraction is disabled".into()));
         }
 
         let st = self.core.state?;
 
-        let record_layer = self.core.common_state.record_layer;
+        let record_layer = &mut self.core.common_state.record_layer;
         let PartiallyExtractedSecrets { tx, rx } = st.extract_secrets()?;
         Ok(ExtractedSecrets {
             tx: (record_layer.write_seq(), tx),
@@ -571,7 +572,9 @@ impl<Data> ConnectionCommon<Data> {
 impl<'a, Data> From<&'a mut ConnectionCommon<Data>> for Context<'a, Data> {
     fn from(conn: &'a mut ConnectionCommon<Data>) -> Self {
         Self {
-            common: &mut conn.core.common_state,
+            common: CommonState2::Eager {
+                common_state: &mut conn.core.common_state,
+            },
             data: &mut conn.core.data,
         }
     }
@@ -639,10 +642,11 @@ impl<Data> ConnectionCore<Data> {
 
     /// Pull a message out of the deframer and send any messages that need to be sent as a result.
     fn deframe(&mut self) -> Result<Option<PlainMessage>, Error> {
-        match self.message_deframer.pop(
-            &mut self.common_state.record_layer,
-            self.common_state.negotiated_version,
-        ) {
+        let negotiated_version = self.common_state.negotiated_version;
+        match self
+            .message_deframer
+            .pop(&mut self.common_state.record_layer, negotiated_version)
+        {
             Ok(Some(Deframed {
                 want_close_before_decrypt,
                 aligned,
@@ -747,6 +751,156 @@ impl<Data> ConnectionCore<Data> {
                 .map(|_| output),
             Err(e) => Err(e.clone()),
         }
+    }
+}
+
+pub(crate) struct LlConnectionCore<Data> {
+    pub(crate) common_state: LlCommonState,
+    data: Data,
+    pub(crate) deferred_actions: LlDeferredActions,
+    message_deframer: LlMessageDeframer,
+    pub(crate) state: Result<Box<dyn State<Data>>, Error>,
+}
+
+impl<Data> LlConnectionCore<Data> {
+    pub(crate) fn new(
+        common_state: LlCommonState,
+        data: Data,
+        deferred_actions: LlDeferredActions,
+        state: Box<dyn State<Data>>,
+    ) -> Self {
+        Self {
+            common_state,
+            data,
+            deferred_actions,
+            message_deframer: LlMessageDeframer::default(),
+            state: Ok(state),
+        }
+    }
+
+    // TODO share code between this and `ConnectionCore::deframe`
+    pub(crate) fn deframe(
+        &mut self,
+        incoming_tls: &mut [u8],
+    ) -> Result<Option<(usize, PlainMessage)>, Error> {
+        let negotiated_version = self.common_state.negotiated_version;
+        match self.message_deframer.pop(
+            &mut self.common_state.record_layer,
+            negotiated_version,
+            incoming_tls,
+        ) {
+            Ok(Some(LlDeframed {
+                deframed:
+                    Deframed {
+                        want_close_before_decrypt,
+                        aligned,
+                        trial_decryption_finished,
+                        message,
+                    },
+                discard,
+            })) => {
+                if want_close_before_decrypt {
+                    self.common_state
+                        .send_close_notify(&mut self.deferred_actions);
+                }
+
+                if trial_decryption_finished {
+                    self.common_state
+                        .record_layer
+                        .finish_trial_decryption();
+                }
+
+                self.common_state.aligned_handshake = aligned;
+                Ok(Some((discard, message)))
+            }
+            Ok(None) => Ok(None),
+            Err(err @ Error::InvalidMessage(_)) => {
+                #[cfg(feature = "quic")]
+                if self.common_state.is_quic() {
+                    self.common_state.quic.alert = Some(AlertDescription::DecodeError);
+                }
+
+                Err(if !self.common_state.is_quic() {
+                    self.common_state.send_fatal_alert(
+                        AlertDescription::DecodeError,
+                        err,
+                        &mut self.deferred_actions,
+                    )
+                } else {
+                    err
+                })
+            }
+            Err(err @ Error::PeerSentOversizedRecord) => Err(self.common_state.send_fatal_alert(
+                AlertDescription::RecordOverflow,
+                err,
+                &mut self.deferred_actions,
+            )),
+            Err(err @ Error::DecryptError) => Err(self.common_state.send_fatal_alert(
+                AlertDescription::BadRecordMac,
+                err,
+                &mut self.deferred_actions,
+            )),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl<Data> LlConnectionCore<Data> {
+    // TODO share code between this and `ConnectionCore::process_msg`
+    pub(crate) fn process_msg(
+        &mut self,
+        msg: PlainMessage,
+        state: Box<dyn State<Data>>,
+    ) -> Result<Box<dyn State<Data>>, Error> {
+        // Drop CCS messages during handshake in TLS1.3
+        if msg.typ == ContentType::ChangeCipherSpec
+            && !self
+                .common_state
+                .may_receive_application_data
+            && self.common_state.is_tls13()
+        {
+            if !is_valid_ccs(&msg)
+                || self.common_state.received_middlebox_ccs > TLS13_MAX_DROPPED_CCS
+            {
+                // "An implementation which receives any other change_cipher_spec value or
+                //  which receives a protected change_cipher_spec record MUST abort the
+                //  handshake with an "unexpected_message" alert."
+                return Err(self.common_state.send_fatal_alert(
+                    AlertDescription::UnexpectedMessage,
+                    PeerMisbehaved::IllegalMiddleboxChangeCipherSpec,
+                    &mut self.deferred_actions,
+                ));
+            } else {
+                self.common_state.received_middlebox_ccs += 1;
+                trace!("Dropping CCS");
+                return Ok(state);
+            }
+        }
+
+        // Now we can fully parse the message payload.
+        let msg = match Message::try_from(msg) {
+            Ok(msg) => msg,
+            Err(err) => {
+                return Err(self.common_state.send_fatal_alert(
+                    AlertDescription::DecodeError,
+                    err,
+                    &mut self.deferred_actions,
+                ));
+            }
+        };
+
+        // For alerts, we have separate logic.
+        if let MessagePayload::Alert(alert) = &msg.payload {
+            self.common_state
+                .process_alert(alert, &mut self.deferred_actions)?;
+            return Ok(state);
+        }
+
+        CommonState2::Lazy {
+            common_state: &mut self.common_state,
+            deferred_actions: &mut self.deferred_actions,
+        }
+        .process_main_protocol(msg, state, &mut self.data)
     }
 }
 
