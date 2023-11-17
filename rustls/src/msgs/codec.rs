@@ -1,7 +1,7 @@
 use crate::error::InvalidMessage;
 
 use alloc::vec::Vec;
-use core::fmt::Debug;
+use core::{fmt::Debug, mem};
 
 /// Wrapper over a slice of bytes that allows reading chunks from
 /// with the current position state held using a cursor.
@@ -11,7 +11,7 @@ use core::fmt::Debug;
 /// be obtained using the `take` function
 pub struct Reader<'a> {
     /// The underlying buffer storing the readers content
-    buffer: &'a [u8],
+    buffer: ReaderBuffer<'a>,
     /// Stores the current reading position for the buffer
     cursor: usize,
 }
@@ -21,7 +21,7 @@ impl<'a> Reader<'a> {
     /// the initial cursor position of zero.
     pub fn init(bytes: &'a [u8]) -> Self {
         Reader {
-            buffer: bytes,
+            buffer: ReaderBuffer::Ref(bytes),
             cursor: 0,
         }
     }
@@ -41,9 +41,8 @@ impl<'a> Reader<'a> {
     ///
     /// Moves the cursor to the end of the buffer length.
     pub fn rest(&mut self) -> &'a [u8] {
-        let rest = &self.buffer[self.cursor..];
-        self.cursor = self.buffer.len();
-        rest
+        self.cursor += self.buffer.len();
+        self.buffer.take()
     }
 
     /// Attempts to borrow a slice of bytes from the current
@@ -54,15 +53,14 @@ impl<'a> Reader<'a> {
         if self.left() < length {
             return None;
         }
-        let current = self.cursor;
         self.cursor += length;
-        Some(&self.buffer[current..current + length])
+        Some(self.buffer.split_at(length))
     }
 
     /// Used to check whether the reader has any content left
     /// after the cursor (cursor has not reached end of buffer)
     pub fn any_left(&self) -> bool {
-        self.cursor < self.buffer.len()
+        self.buffer.len() != 0
     }
 
     pub fn expect_empty(&self, name: &'static str) -> Result<(), InvalidMessage> {
@@ -81,7 +79,45 @@ impl<'a> Reader<'a> {
     /// Returns the number of bytes that are still able to be
     /// read (The number of remaining takes)
     pub fn left(&self) -> usize {
-        self.buffer.len() - self.cursor
+        self.buffer.len()
+    }
+}
+
+#[allow(dead_code)]
+enum ReaderBuffer<'a> {
+    Ref(&'a [u8]),
+    Mut(&'a mut [u8]),
+}
+
+impl<'a> ReaderBuffer<'a> {
+    fn take(&mut self) -> &'a [u8] {
+        match self {
+            ReaderBuffer::Ref(r) => mem::take(r),
+            ReaderBuffer::Mut(m) => &*mem::take(m),
+        }
+    }
+
+    fn split_at(&mut self, mid: usize) -> &'a [u8] {
+        match self {
+            ReaderBuffer::Ref(r) => {
+                let (taken, rest) = r.split_at(mid);
+                *self = ReaderBuffer::Ref(rest);
+                taken
+            }
+
+            ReaderBuffer::Mut(m) => {
+                let (taken, rest) = mem::take(m).split_at_mut(mid);
+                *self = ReaderBuffer::Mut(rest);
+                taken
+            }
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            ReaderBuffer::Ref(r) => r.len(),
+            ReaderBuffer::Mut(m) => m.len(),
+        }
     }
 }
 
