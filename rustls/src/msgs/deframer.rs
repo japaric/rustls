@@ -4,9 +4,8 @@ use core::ops::Range;
 use core::slice::SliceIndex;
 use std::io;
 
-use super::base::Payload;
 use super::codec::Codec;
-use super::message::{BorrowedOpaqueMessage, PlainMessage};
+use super::message::{BorrowedOpaqueMessage, BorrowedPlainMessage};
 use crate::enums::{ContentType, ProtocolVersion};
 use crate::error::{Error, InvalidMessage, PeerMisbehaved};
 use crate::msgs::codec;
@@ -34,12 +33,12 @@ impl MessageDeframer {
     /// Returns an `Error` if the deframer failed to parse some message contents or if decryption
     /// failed, `Ok(None)` if no full message is buffered or if trial decryption failed, and
     /// `Ok(Some(_))` if a valid message was found and decrypted successfully.
-    pub fn pop(
+    pub fn pop<'b>(
         &mut self,
         record_layer: &mut RecordLayer,
         negotiated_version: Option<ProtocolVersion>,
-        buffer: &mut DeframerSliceBuffer,
-    ) -> Result<Option<Deframed>, Error> {
+        buffer: &mut DeframerSliceBuffer<'b, '_>,
+    ) -> Result<Option<Deframed<'b>>, Error> {
         if let Some(last_err) = self.last_error.clone() {
             return Err(last_err);
         } else if buffer.is_empty() {
@@ -110,10 +109,19 @@ impl MessageDeframer {
                 _ => false,
             };
             if self.joining_hs.is_none() && allowed_plaintext {
-                // FIXME do not allocate
-                let message = m.into_plain_message().into_owned();
+                let BorrowedOpaqueMessage {
+                    typ,
+                    version,
+                    payload,
+                } = m;
+                let raw = RawSlice::from(&*payload);
                 // This is unencrypted. We check the contents later.
                 buffer.queue_discard(end);
+                let message = BorrowedPlainMessage {
+                    typ,
+                    version,
+                    payload: buffer.take(raw),
+                };
                 return Ok(Some(Deframed {
                     want_close_before_decrypt: false,
                     aligned: true,
@@ -156,10 +164,19 @@ impl MessageDeframer {
 
             // If it's not a handshake message, just return it -- no joining necessary.
             if msg.typ != ContentType::Handshake {
-                // FIXME do not allocate
-                let message = msg.into_owned();
+                let BorrowedPlainMessage {
+                    typ,
+                    version,
+                    payload,
+                } = msg;
+                let raw = RawSlice::from(payload);
                 let end = start + rd.used();
                 buffer.queue_discard(end);
+                let message = BorrowedPlainMessage {
+                    typ,
+                    version,
+                    payload: buffer.take(raw),
+                };
                 return Ok(Some(Deframed {
                     want_close_before_decrypt: false,
                     aligned: true,
@@ -182,13 +199,10 @@ impl MessageDeframer {
         let meta = self.joining_hs.as_mut().unwrap(); // safe after calling `append_hs()`
 
         // We can now wrap the complete handshake payload in a `PlainMessage`, to be returned.
-        let message = PlainMessage {
-            typ: ContentType::Handshake,
-            version: meta.version,
-            payload: Payload::new(
-                buffer.filled_get(meta.payload.start..meta.payload.start + expected_len),
-            ),
-        };
+        let raw = RawSlice::from(
+            buffer.filled_get(meta.payload.start..meta.payload.start + expected_len),
+        );
+        let version = meta.version;
 
         // But before we return, update the `joining_hs` state to skip past this payload.
         if meta.payload.len() > expected_len {
@@ -205,6 +219,12 @@ impl MessageDeframer {
             self.joining_hs = None;
             buffer.queue_discard(end);
         }
+
+        let message = BorrowedPlainMessage {
+            typ: ContentType::Handshake,
+            version,
+            payload: buffer.take(raw),
+        };
 
         Ok(Some(Deframed {
             want_close_before_decrypt: false,
@@ -338,10 +358,7 @@ impl DeframerVecBuffer {
     /// Borrows the initialized contents of this buffer and tracks pending discard operations via
     /// the `discard` reference
     pub fn borrow<'b, 'd>(&'b mut self, discard: &'d mut usize) -> DeframerSliceBuffer<'b, 'd> {
-        DeframerSliceBuffer {
-            buf: &mut self.buf[..self.used],
-            discard: Cell::from_mut(discard),
-        }
+        DeframerSliceBuffer::new(&mut self.buf[..self.used], discard)
     }
 
     /// Returns true if we have messages for the caller
@@ -420,9 +437,18 @@ pub struct DeframerSliceBuffer<'b, 'd> {
     buf: &'b mut [u8],
     // number of bytes to discard from the front of `buf` at a later time
     discard: &'d Cell<usize>,
+    taken: usize,
 }
 
-impl DeframerSliceBuffer<'_, '_> {
+impl<'b, 'd> DeframerSliceBuffer<'b, 'd> {
+    pub fn new(buf: &'b mut [u8], discard: &'d mut usize) -> Self {
+        Self {
+            buf,
+            discard: Cell::from_mut(discard),
+            taken: 0,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -430,6 +456,32 @@ impl DeframerSliceBuffer<'_, '_> {
     pub fn queue_discard(&self, num_bytes: usize) {
         let old = self.discard.get();
         self.discard.set(old + num_bytes);
+    }
+
+    fn take(&mut self, raw: RawSlice) -> &'b mut [u8] {
+        let start = ((raw.ptr as usize).checked_sub(self.buf.as_ptr() as usize)).unwrap();
+        let end = start + raw.len;
+
+        let (taken, rest) = core::mem::take(&mut self.buf).split_at_mut(end);
+        self.buf = rest;
+        self.taken += end;
+
+        &mut taken[start..]
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RawSlice {
+    ptr: *const u8,
+    len: usize,
+}
+
+impl From<&'_ [u8]> for RawSlice {
+    fn from(slice: &'_ [u8]) -> Self {
+        Self {
+            ptr: slice.as_ptr(),
+            len: slice.len(),
+        }
     }
 }
 
@@ -494,11 +546,11 @@ impl DeframerBuffer for DeframerSliceBuffer<'_, '_> {
     }
 
     fn filled(&self) -> &[u8] {
-        &self.buf[self.discard.get()..]
+        &self.buf[self.discard.get() - self.taken..]
     }
 
     fn filled_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[self.discard.get()..]
+        &mut self.buf[self.discard.get() - self.taken..]
     }
 
     fn unfilled(&mut self) -> &mut [u8] {
@@ -558,11 +610,11 @@ fn payload_size(buf: &[u8]) -> Result<Option<usize>, Error> {
 }
 
 #[derive(Debug)]
-pub struct Deframed {
+pub struct Deframed<'b> {
     pub(crate) want_close_before_decrypt: bool,
     pub(crate) aligned: bool,
     pub(crate) trial_decryption_finished: bool,
-    pub message: PlainMessage,
+    pub message: BorrowedPlainMessage<'b>,
 }
 
 const HEADER_SIZE: usize = 1 + 3;
@@ -576,13 +628,14 @@ const READ_SIZE: usize = 4096;
 
 #[cfg(test)]
 mod tests {
+    use crate::crypto::cipher::PlainMessage;
     use crate::msgs::message::{Message, OpaqueMessage};
     use crate::record_layer::RecordLayer;
     use crate::{ContentType, Error, InvalidMessage, ProtocolVersion};
 
     use std::io;
 
-    use super::{Deframed, DeframerBuffer};
+    use super::DeframerBuffer;
 
     const FIRST_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-test.1.bin");
     const SECOND_MESSAGE: &[u8] = include_bytes!("../testdata/deframer-test.2.bin");
@@ -627,19 +680,43 @@ mod tests {
             self.read(&mut rd)
         }
 
-        fn pop(
+        fn pop_message(
             &mut self,
             record_layer: &mut RecordLayer,
             negotiated_version: Option<ProtocolVersion>,
-        ) -> Result<Option<Deframed>, Error> {
+        ) -> PlainMessage {
             let mut to_discard = 0;
-            let res = self.inner.pop(
-                record_layer,
-                negotiated_version,
-                &mut self.buffer.borrow(&mut to_discard),
-            );
+            let msg = self
+                .inner
+                .pop(
+                    record_layer,
+                    negotiated_version,
+                    &mut self.buffer.borrow(&mut to_discard),
+                )
+                .unwrap()
+                .unwrap()
+                .message
+                .into_owned();
             self.buffer.discard(to_discard);
-            res
+            msg
+        }
+
+        fn pop_err(
+            &mut self,
+            record_layer: &mut RecordLayer,
+            negotiated_version: Option<ProtocolVersion>,
+        ) -> Error {
+            let mut to_discard = 0;
+            let err = self
+                .inner
+                .pop(
+                    record_layer,
+                    negotiated_version,
+                    &mut self.buffer.borrow(&mut to_discard),
+                )
+                .unwrap_err();
+            self.buffer.discard(to_discard);
+            err
         }
 
         fn read(&mut self, rd: &mut dyn io::Read) -> io::Result<usize> {
@@ -699,21 +776,13 @@ mod tests {
     }
 
     fn pop_first(d: &mut BufferedDeframer, rl: &mut RecordLayer) {
-        let m = d
-            .pop(rl, None)
-            .unwrap()
-            .unwrap()
-            .message;
+        let m = d.pop_message(rl, None);
         assert_eq!(m.typ, ContentType::Handshake);
         Message::try_from(m).unwrap();
     }
 
     fn pop_second(d: &mut BufferedDeframer, rl: &mut RecordLayer) {
-        let m = d
-            .pop(rl, None)
-            .unwrap()
-            .unwrap()
-            .message;
+        let m = d.pop_message(rl, None);
         assert_eq!(m.typ, ContentType::Alert);
         Message::try_from(m).unwrap();
     }
@@ -830,7 +899,7 @@ mod tests {
 
         let mut rl = RecordLayer::new();
         assert_eq!(
-            d.pop(&mut rl, None).unwrap_err(),
+            d.pop_err(&mut rl, None),
             Error::InvalidMessage(InvalidMessage::InvalidContentType)
         );
     }
@@ -845,7 +914,7 @@ mod tests {
 
         let mut rl = RecordLayer::new();
         assert_eq!(
-            d.pop(&mut rl, None).unwrap_err(),
+            d.pop_err(&mut rl, None),
             Error::InvalidMessage(InvalidMessage::UnknownProtocolVersion)
         );
     }
@@ -860,7 +929,7 @@ mod tests {
 
         let mut rl = RecordLayer::new();
         assert_eq!(
-            d.pop(&mut rl, None).unwrap_err(),
+            d.pop_err(&mut rl, None),
             Error::InvalidMessage(InvalidMessage::MessageTooLarge)
         );
     }
@@ -874,11 +943,7 @@ mod tests {
         );
 
         let mut rl = RecordLayer::new();
-        let m = d
-            .pop(&mut rl, None)
-            .unwrap()
-            .unwrap()
-            .message;
+        let m = d.pop_message(&mut rl, None);
         assert_eq!(m.typ, ContentType::ApplicationData);
         assert_eq!(m.payload.0.len(), 0);
         assert!(!d.has_pending());
@@ -895,12 +960,12 @@ mod tests {
 
         let mut rl = RecordLayer::new();
         assert_eq!(
-            d.pop(&mut rl, None).unwrap_err(),
+            d.pop_err(&mut rl, None),
             Error::InvalidMessage(InvalidMessage::InvalidEmptyPayload)
         );
         // CorruptMessage has been fused
         assert_eq!(
-            d.pop(&mut rl, None).unwrap_err(),
+            d.pop_err(&mut rl, None),
             Error::InvalidMessage(InvalidMessage::InvalidEmptyPayload)
         );
     }

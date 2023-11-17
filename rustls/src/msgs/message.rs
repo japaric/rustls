@@ -469,7 +469,7 @@ impl<'a> BorrowedPlainMessage<'a> {
         }
     }
 
-    pub(crate) fn into_owned(self) -> PlainMessage {
+    pub fn into_owned(self) -> PlainMessage {
         PlainMessage {
             typ: self.typ,
             version: self.version,
