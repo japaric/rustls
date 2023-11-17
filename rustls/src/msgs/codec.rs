@@ -26,12 +26,26 @@ impl<'a> Reader<'a> {
         }
     }
 
+    pub(crate) fn init_mut(bytes: &'a mut [u8]) -> Self {
+        Self {
+            buffer: ReaderBuffer::Mut(bytes),
+            cursor: 0,
+        }
+    }
+
     /// Attempts to create a new Reader on a sub section of this
     /// readers bytes by taking a slice of the provided `length`
     /// will return None if there is not enough bytes
     pub fn sub(&mut self, length: usize) -> Result<Self, InvalidMessage> {
         match self.take(length) {
             Some(bytes) => Ok(Reader::init(bytes)),
+            None => Err(InvalidMessage::MessageTooShort),
+        }
+    }
+
+    pub(crate) fn sub_mut(&mut self, length: usize) -> Result<Self, InvalidMessage> {
+        match self.take_mut(length) {
+            Some(bytes) => Ok(Reader::init_mut(bytes)),
             None => Err(InvalidMessage::MessageTooShort),
         }
     }
@@ -43,6 +57,11 @@ impl<'a> Reader<'a> {
     pub fn rest(&mut self) -> &'a [u8] {
         self.cursor += self.buffer.len();
         self.buffer.take()
+    }
+
+    pub(crate) fn rest_mut(&mut self) -> &'a mut [u8] {
+        self.cursor += self.buffer.len();
+        self.buffer.take_mut()
     }
 
     /// Attempts to borrow a slice of bytes from the current
@@ -57,6 +76,13 @@ impl<'a> Reader<'a> {
         Some(self.buffer.split_at(length))
     }
 
+    fn take_mut(&mut self, length: usize) -> Option<&'a mut [u8]> {
+        if self.left() < length {
+            return None;
+        }
+        self.cursor += length;
+        Some(self.buffer.split_at_mut(length))
+    }
     /// Used to check whether the reader has any content left
     /// after the cursor (cursor has not reached end of buffer)
     pub fn any_left(&self) -> bool {
@@ -97,12 +123,35 @@ impl<'a> ReaderBuffer<'a> {
         }
     }
 
+    fn take_mut(&mut self) -> &'a mut [u8] {
+        match self {
+            ReaderBuffer::Ref(_) => {
+                panic!("underlying buffer is not mutable")
+            }
+            ReaderBuffer::Mut(m) => mem::take(m),
+        }
+    }
+
     fn split_at(&mut self, mid: usize) -> &'a [u8] {
         match self {
             ReaderBuffer::Ref(r) => {
                 let (taken, rest) = r.split_at(mid);
                 *self = ReaderBuffer::Ref(rest);
                 taken
+            }
+
+            ReaderBuffer::Mut(m) => {
+                let (taken, rest) = mem::take(m).split_at_mut(mid);
+                *self = ReaderBuffer::Mut(rest);
+                taken
+            }
+        }
+    }
+
+    fn split_at_mut(&mut self, mid: usize) -> &'a mut [u8] {
+        match self {
+            ReaderBuffer::Ref(_) => {
+                panic!("underlying buffer is not mutable")
             }
 
             ReaderBuffer::Mut(m) => {

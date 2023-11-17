@@ -1,6 +1,6 @@
 use crate::crypto::cipher::{MessageDecrypter, MessageEncrypter};
 use crate::error::Error;
-use crate::msgs::message::{BorrowedPlainMessage, OpaqueMessage, PlainMessage};
+use crate::msgs::message::{BorrowedOpaqueMessage, BorrowedPlainMessage, OpaqueMessage};
 
 #[cfg(feature = "logging")]
 use crate::log::trace;
@@ -58,10 +58,10 @@ impl RecordLayer {
     /// `encr` is a decoded message allegedly received from the peer.
     /// If it can be decrypted, its decryption is returned.  Otherwise,
     /// an error is returned.
-    pub(crate) fn decrypt_incoming(
+    pub(crate) fn decrypt_incoming<'p>(
         &mut self,
-        encr: OpaqueMessage,
-    ) -> Result<Option<Decrypted>, Error> {
+        encr: BorrowedOpaqueMessage<'p>,
+    ) -> Result<Option<Decrypted<'p>>, Error> {
         if self.decrypt_state != DirectionState::Active {
             return Ok(Some(Decrypted {
                 want_close_before_decrypt: false,
@@ -79,7 +79,7 @@ impl RecordLayer {
         // failure has already happened.
         let want_close_before_decrypt = self.read_seq == SEQ_SOFT_LIMIT;
 
-        let encrypted_len = encr.payload().len();
+        let encrypted_len = encr.payload.len();
         match self
             .message_decrypter
             .decrypt(encr, self.read_seq)
@@ -224,11 +224,11 @@ impl RecordLayer {
 
 /// Result of decryption.
 #[derive(Debug)]
-pub(crate) struct Decrypted {
+pub(crate) struct Decrypted<'p> {
     /// Whether the peer appears to be getting close to encrypting too many messages with this key.
     pub(crate) want_close_before_decrypt: bool,
     /// The decrypted message.
-    pub(crate) plaintext: PlainMessage,
+    pub(crate) plaintext: BorrowedPlainMessage<'p>,
 }
 
 #[cfg(test)]
@@ -241,7 +241,11 @@ mod tests {
 
         struct PassThroughDecrypter;
         impl MessageDecrypter for PassThroughDecrypter {
-            fn decrypt(&self, m: OpaqueMessage, _: u64) -> Result<PlainMessage, Error> {
+            fn decrypt<'p>(
+                &self,
+                m: BorrowedOpaqueMessage<'p>,
+                _: u64,
+            ) -> Result<BorrowedPlainMessage<'p>, Error> {
                 Ok(m.into_plain_message())
             }
         }
@@ -273,13 +277,13 @@ mod tests {
 
         // Decrypting a message should update the read_seq and track that we have now performed
         // a decryption.
-        let msg = OpaqueMessage::new(
+        let mut msg = OpaqueMessage::new(
             ContentType::Handshake,
             ProtocolVersion::TLSv1_2,
             vec![0xC0, 0xFF, 0xEE],
         );
         record_layer
-            .decrypt_incoming(msg)
+            .decrypt_incoming(msg.borrow())
             .unwrap();
         assert!(matches!(record_layer.decrypt_state, DirectionState::Active));
         assert_eq!(record_layer.read_seq, 1);

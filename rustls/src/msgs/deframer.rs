@@ -6,7 +6,7 @@ use std::io;
 
 use super::base::Payload;
 use super::codec::Codec;
-use super::message::PlainMessage;
+use super::message::{BorrowedOpaqueMessage, PlainMessage};
 use crate::enums::{ContentType, ProtocolVersion};
 use crate::error::{Error, InvalidMessage, PeerMisbehaved};
 use crate::msgs::codec;
@@ -67,8 +67,8 @@ impl MessageDeframer {
             // Does our `buf` contain a full message?  It does if it is big enough to
             // contain a header, and that header has a length which falls within `buf`.
             // If so, deframe it and place the message onto the frames output queue.
-            let mut rd = codec::Reader::init(buffer.filled_get(start..));
-            let m = match OpaqueMessage::read(&mut rd) {
+            let mut rd = codec::Reader::init_mut(buffer.filled_get_mut(start..));
+            let m = match BorrowedOpaqueMessage::read(&mut rd) {
                 Ok(m) => m,
                 Err(msg_err) => {
                     let err_kind = match msg_err {
@@ -102,7 +102,7 @@ impl MessageDeframer {
                 ContentType::Alert
                     if version_is_tls13
                         && !record_layer.has_decrypted()
-                        && m.payload().len() <= 2 =>
+                        && m.payload.len() <= 2 =>
                 {
                     true
                 }
@@ -110,13 +110,15 @@ impl MessageDeframer {
                 _ => false,
             };
             if self.joining_hs.is_none() && allowed_plaintext {
+                // FIXME do not allocate
+                let message = m.into_plain_message().into_owned();
                 // This is unencrypted. We check the contents later.
                 buffer.queue_discard(end);
                 return Ok(Some(Deframed {
                     want_close_before_decrypt: false,
                     aligned: true,
                     trial_decryption_finished: false,
-                    message: m.into_plain_message(),
+                    message,
                 }));
             }
 
@@ -154,19 +156,23 @@ impl MessageDeframer {
 
             // If it's not a handshake message, just return it -- no joining necessary.
             if msg.typ != ContentType::Handshake {
+                // FIXME do not allocate
+                let message = msg.into_owned();
                 let end = start + rd.used();
                 buffer.queue_discard(end);
                 return Ok(Some(Deframed {
                     want_close_before_decrypt: false,
                     aligned: true,
                     trial_decryption_finished: false,
-                    message: msg,
+                    message,
                 }));
             }
 
             // If we don't know the payload size yet or if the payload size is larger
             // than the currently buffered payload, we need to wait for more data.
-            match self.append_hs(msg.version, &msg.payload.0, end, false, buffer)? {
+            // FIXME do not allocate
+            let payload = msg.payload.to_vec();
+            match self.append_hs(msg.version, &payload, end, false, buffer)? {
                 HandshakePayloadState::Blocked => return Ok(None),
                 HandshakePayloadState::Complete(len) => break len,
                 HandshakePayloadState::Continue => continue,
@@ -450,6 +456,14 @@ trait DeframerBuffer {
         self.filled().get(index).unwrap()
     }
     fn filled_mut(&mut self) -> &mut [u8];
+    fn filled_get_mut<I>(&mut self, index: I) -> &mut I::Output
+    where
+        I: SliceIndex<[u8]>,
+    {
+        self.filled_mut()
+            .get_mut(index)
+            .unwrap()
+    }
     fn len(&self) -> usize {
         self.filled().len()
     }

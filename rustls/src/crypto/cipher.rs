@@ -6,7 +6,9 @@ use std::error::Error as StdError;
 use crate::enums::{ContentType, ProtocolVersion};
 use crate::error::Error;
 use crate::msgs::codec;
-pub use crate::msgs::message::{BorrowedPlainMessage, OpaqueMessage, PlainMessage};
+pub use crate::msgs::message::{
+    BorrowedOpaqueMessage, BorrowedPayload, BorrowedPlainMessage, OpaqueMessage, PlainMessage,
+};
 use crate::suites::ConnectionTrafficSecrets;
 
 use zeroize::Zeroize;
@@ -124,7 +126,11 @@ pub struct KeyBlockShape {
 pub trait MessageDecrypter: Send + Sync {
     /// Decrypt the given TLS message `msg`, using the sequence number
     /// `seq` which can be used to derive a unique [`Nonce`].
-    fn decrypt(&self, msg: OpaqueMessage, seq: u64) -> Result<PlainMessage, Error>;
+    fn decrypt<'p>(
+        &self,
+        msg: BorrowedOpaqueMessage<'p>,
+        seq: u64,
+    ) -> Result<BorrowedPlainMessage<'p>, Error>;
 }
 
 /// Objects with this trait can encrypt TLS messages.
@@ -314,7 +320,11 @@ impl MessageEncrypter for InvalidMessageEncrypter {
 struct InvalidMessageDecrypter {}
 
 impl MessageDecrypter for InvalidMessageDecrypter {
-    fn decrypt(&self, _m: OpaqueMessage, _seq: u64) -> Result<PlainMessage, Error> {
+    fn decrypt<'p>(
+        &self,
+        _m: BorrowedOpaqueMessage<'p>,
+        _seq: u64,
+    ) -> Result<BorrowedPlainMessage<'p>, Error> {
         Err(Error::DecryptError)
     }
 }
