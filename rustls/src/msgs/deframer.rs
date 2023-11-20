@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::ops::Range;
+use core::slice::SliceIndex;
 use std::io;
 
 use super::base::Payload;
@@ -65,7 +66,7 @@ impl MessageDeframer {
             // Does our `buf` contain a full message?  It does if it is big enough to
             // contain a header, and that header has a length which falls within `buf`.
             // If so, deframe it and place the message onto the frames output queue.
-            let mut rd = codec::Reader::init(&buffer.filled()[start..]);
+            let mut rd = codec::Reader::init(buffer.filled_get(start..));
             let m = match OpaqueMessage::read(&mut rd) {
                 Ok(m) => m,
                 Err(msg_err) => {
@@ -178,7 +179,7 @@ impl MessageDeframer {
             typ: ContentType::Handshake,
             version: meta.version,
             payload: Payload::new(
-                &buffer.filled()[meta.payload.start..meta.payload.start + expected_len],
+                buffer.filled_get(meta.payload.start..meta.payload.start + expected_len),
             ),
         };
 
@@ -189,7 +190,7 @@ impl MessageDeframer {
             // `expected_len` to match the state of that remaining payload.
             meta.payload.start += expected_len;
             meta.expected_len =
-                payload_size(&buffer.filled()[meta.payload.start..meta.payload.end])?;
+                payload_size(buffer.filled_get(meta.payload.start..meta.payload.end))?;
         } else {
             // Otherwise, we've yielded the last handshake payload in the buffer, so we can
             // discard all of the bytes that we're previously buffered as handshake data.
@@ -260,7 +261,7 @@ impl MessageDeframer {
                 // If we haven't parsed the payload size yet, try to do so now.
                 if meta.expected_len.is_none() {
                     meta.expected_len =
-                        payload_size(&buffer.filled()[meta.payload.start..meta.payload.end])?;
+                        payload_size(buffer.filled_get(meta.payload.start..meta.payload.end))?;
                 }
 
                 meta
@@ -440,6 +441,12 @@ trait DeframerBuffer {
         }
     }
     fn filled(&self) -> &[u8];
+    fn filled_get<I>(&self, index: I) -> &I::Output
+    where
+        I: SliceIndex<[u8]>,
+    {
+        self.filled().get(index).unwrap()
+    }
     fn filled_mut(&mut self) -> &mut [u8];
     fn len(&self) -> usize {
         self.filled().len()
