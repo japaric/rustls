@@ -583,13 +583,13 @@ mod tests {
 
     // buffered version to ease testing
     #[derive(Default)]
-    struct MessageDeframer {
+    struct BufferedDeframer {
         inner: super::MessageDeframer,
         buffer: super::DeframerVecBuffer,
     }
 
     // grant access to the `MessageDeframer.last_error` field
-    impl core::ops::Deref for MessageDeframer {
+    impl core::ops::Deref for BufferedDeframer {
         type Target = super::MessageDeframer;
 
         fn deref(&self) -> &Self::Target {
@@ -597,7 +597,7 @@ mod tests {
         }
     }
 
-    impl MessageDeframer {
+    impl BufferedDeframer {
         fn pop(
             &mut self,
             record_layer: &mut RecordLayer,
@@ -622,13 +622,13 @@ mod tests {
         }
     }
 
-    fn input_bytes(d: &mut MessageDeframer, bytes: &[u8]) -> io::Result<usize> {
+    fn input_bytes(d: &mut BufferedDeframer, bytes: &[u8]) -> io::Result<usize> {
         let mut rd = io::Cursor::new(bytes);
         d.read(&mut rd)
     }
 
     fn input_bytes_concat(
-        d: &mut MessageDeframer,
+        d: &mut BufferedDeframer,
         bytes1: &[u8],
         bytes2: &[u8],
     ) -> io::Result<usize> {
@@ -660,14 +660,14 @@ mod tests {
         }
     }
 
-    fn input_error(d: &mut MessageDeframer) {
+    fn input_error(d: &mut BufferedDeframer) {
         let error = io::Error::from(io::ErrorKind::TimedOut);
         let mut rd = ErrorRead::new(error);
         d.read(&mut rd)
             .expect_err("error not propagated");
     }
 
-    fn input_whole_incremental(d: &mut MessageDeframer, bytes: &[u8]) {
+    fn input_whole_incremental(d: &mut BufferedDeframer, bytes: &[u8]) {
         let before = d.buffer.len();
 
         for i in 0..bytes.len() {
@@ -686,7 +686,7 @@ mod tests {
         }
     }
 
-    fn pop_first(d: &mut MessageDeframer, rl: &mut RecordLayer) {
+    fn pop_first(d: &mut BufferedDeframer, rl: &mut RecordLayer) {
         let m = d
             .pop(rl, None)
             .unwrap()
@@ -696,7 +696,7 @@ mod tests {
         Message::try_from(m).unwrap();
     }
 
-    fn pop_second(d: &mut MessageDeframer, rl: &mut RecordLayer) {
+    fn pop_second(d: &mut BufferedDeframer, rl: &mut RecordLayer) {
         let m = d
             .pop(rl, None)
             .unwrap()
@@ -708,7 +708,7 @@ mod tests {
 
     #[test]
     fn check_incremental() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
         input_whole_incremental(&mut d, FIRST_MESSAGE);
         assert!(d.has_pending());
@@ -721,7 +721,7 @@ mod tests {
 
     #[test]
     fn check_incremental_2() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
         input_whole_incremental(&mut d, FIRST_MESSAGE);
         assert!(d.has_pending());
@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn check_whole() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
         assert_len(FIRST_MESSAGE.len(), input_bytes(&mut d, FIRST_MESSAGE));
         assert!(d.has_pending());
@@ -751,7 +751,7 @@ mod tests {
 
     #[test]
     fn check_whole_2() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
         assert_len(FIRST_MESSAGE.len(), input_bytes(&mut d, FIRST_MESSAGE));
         assert_len(SECOND_MESSAGE.len(), input_bytes(&mut d, SECOND_MESSAGE));
@@ -765,7 +765,7 @@ mod tests {
 
     #[test]
     fn test_two_in_one_read() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
         assert_len(
             FIRST_MESSAGE.len() + SECOND_MESSAGE.len(),
@@ -781,7 +781,7 @@ mod tests {
 
     #[test]
     fn test_two_in_one_read_shortest_first() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
         assert_len(
             FIRST_MESSAGE.len() + SECOND_MESSAGE.len(),
@@ -797,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_incremental_with_nonfatal_read_error() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(3, input_bytes(&mut d, &FIRST_MESSAGE[..3]));
         input_error(&mut d);
         assert_len(
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn test_invalid_contenttype_errors() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_CONTENTTYPE_MESSAGE.len(),
             input_bytes(&mut d, INVALID_CONTENTTYPE_MESSAGE),
@@ -828,7 +828,7 @@ mod tests {
 
     #[test]
     fn test_invalid_version_errors() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_VERSION_MESSAGE.len(),
             input_bytes(&mut d, INVALID_VERSION_MESSAGE),
@@ -843,7 +843,7 @@ mod tests {
 
     #[test]
     fn test_invalid_length_errors() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_LENGTH_MESSAGE.len(),
             input_bytes(&mut d, INVALID_LENGTH_MESSAGE),
@@ -858,7 +858,7 @@ mod tests {
 
     #[test]
     fn test_empty_applicationdata() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(
             EMPTY_APPLICATIONDATA_MESSAGE.len(),
             input_bytes(&mut d, EMPTY_APPLICATIONDATA_MESSAGE),
@@ -878,7 +878,7 @@ mod tests {
 
     #[test]
     fn test_invalid_empty_errors() {
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_EMPTY_MESSAGE.len(),
             input_bytes(&mut d, INVALID_EMPTY_MESSAGE),
@@ -905,7 +905,7 @@ mod tests {
         message.extend((PAYLOAD_LEN as u16).to_be_bytes()); // payload length
         message.extend(&[0; PAYLOAD_LEN]);
 
-        let mut d = MessageDeframer::default();
+        let mut d = BufferedDeframer::default();
         assert_len(4096, input_bytes(&mut d, &message));
         assert_len(4096, input_bytes(&mut d, &message));
         assert_len(4096, input_bytes(&mut d, &message));
