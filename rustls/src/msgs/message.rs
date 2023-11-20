@@ -42,16 +42,16 @@ impl MessagePayload {
     pub fn new(
         typ: ContentType,
         vers: ProtocolVersion,
-        payload: Payload<'static>,
+        payload: &[u8],
     ) -> Result<Self, InvalidMessage> {
-        let mut r = Reader::init(payload.bytes());
+        let mut r = Reader::init(payload);
         match typ {
-            ContentType::ApplicationData => Ok(Self::ApplicationData(payload)),
+            ContentType::ApplicationData => Ok(Self::ApplicationData(Payload::new(payload))),
             ContentType::Alert => AlertMessagePayload::read(&mut r).map(MessagePayload::Alert),
             ContentType::Handshake => {
                 HandshakeMessagePayload::read_version(&mut r, vers).map(|parsed| Self::Handshake {
                     parsed,
-                    encoded: payload,
+                    encoded: Payload::new(payload),
                 })
             }
             ContentType::ChangeCipherSpec => {
@@ -123,7 +123,7 @@ impl OpaqueMessage {
         let mut sub = r
             .sub(len as usize)
             .map_err(|_| MessageError::TooShortForLength)?;
-        let payload = Payload::read(&mut sub);
+        let payload = Payload::read(&mut sub).into_owned();
 
         Ok(Self {
             typ,
@@ -356,7 +356,7 @@ impl From<Message> for PlainMessage {
     fn from(msg: Message) -> Self {
         let typ = msg.payload.content_type();
         let payload = match msg.payload {
-            MessagePayload::ApplicationData(payload) => payload,
+            MessagePayload::ApplicationData(payload) => payload.into_owned(),
             _ => {
                 let mut buf = Vec::new();
                 msg.payload.encode(&mut buf);
@@ -436,14 +436,25 @@ impl Message {
     }
 }
 
-/// Parses a plaintext message into a well-typed [`Message`].
-///
-/// A [`PlainMessage`] must contain plaintext content. Encrypted content should be stored in an
-/// [`OpaqueMessage`] and decrypted before being stored into a [`PlainMessage`].
 impl TryFrom<PlainMessage> for Message {
     type Error = Error;
 
     fn try_from(plain: PlainMessage) -> Result<Self, Self::Error> {
+        Ok(Self {
+            version: plain.version,
+            payload: MessagePayload::new(plain.typ, plain.version, plain.payload.bytes())?,
+        })
+    }
+}
+
+/// Parses a plaintext message into a well-typed [`Message`].
+///
+/// A [`PlainMessage`] must contain plaintext content. Encrypted content should be stored in an
+/// [`OpaqueMessage`] and decrypted before being stored into a [`PlainMessage`].
+impl<'a> TryFrom<BorrowedPlainMessage<'a>> for Message {
+    type Error = Error;
+
+    fn try_from(plain: BorrowedPlainMessage<'a>) -> Result<Self, Self::Error> {
         Ok(Self {
             version: plain.version,
             payload: MessagePayload::new(plain.typ, plain.version, plain.payload)?,
