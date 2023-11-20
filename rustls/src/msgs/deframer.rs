@@ -598,6 +598,19 @@ mod tests {
     }
 
     impl BufferedDeframer {
+        fn input_bytes(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let mut rd = io::Cursor::new(bytes);
+            self.read(&mut rd)
+        }
+
+        fn input_bytes_concat(&mut self, bytes1: &[u8], bytes2: &[u8]) -> io::Result<usize> {
+            let mut bytes = vec![0u8; bytes1.len() + bytes2.len()];
+            bytes[..bytes1.len()].clone_from_slice(bytes1);
+            bytes[bytes1.len()..].clone_from_slice(bytes2);
+            let mut rd = io::Cursor::new(&bytes);
+            self.read(&mut rd)
+        }
+
         fn pop(
             &mut self,
             record_layer: &mut RecordLayer,
@@ -620,23 +633,6 @@ mod tests {
         fn has_pending(&self) -> bool {
             self.buffer.has_pending()
         }
-    }
-
-    fn input_bytes(d: &mut BufferedDeframer, bytes: &[u8]) -> io::Result<usize> {
-        let mut rd = io::Cursor::new(bytes);
-        d.read(&mut rd)
-    }
-
-    fn input_bytes_concat(
-        d: &mut BufferedDeframer,
-        bytes1: &[u8],
-        bytes2: &[u8],
-    ) -> io::Result<usize> {
-        let mut bytes = vec![0u8; bytes1.len() + bytes2.len()];
-        bytes[..bytes1.len()].clone_from_slice(bytes1);
-        bytes[bytes1.len()..].clone_from_slice(bytes2);
-        let mut rd = io::Cursor::new(&bytes);
-        d.read(&mut rd)
     }
 
     struct ErrorRead {
@@ -671,7 +667,7 @@ mod tests {
         let before = d.buffer.len();
 
         for i in 0..bytes.len() {
-            assert_len(1, input_bytes(d, &bytes[i..i + 1]));
+            assert_len(1, d.input_bytes(&bytes[i..i + 1]));
             assert!(d.has_pending());
         }
 
@@ -740,7 +736,7 @@ mod tests {
     fn check_whole() {
         let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
-        assert_len(FIRST_MESSAGE.len(), input_bytes(&mut d, FIRST_MESSAGE));
+        assert_len(FIRST_MESSAGE.len(), d.input_bytes(FIRST_MESSAGE));
         assert!(d.has_pending());
 
         let mut rl = RecordLayer::new();
@@ -753,8 +749,8 @@ mod tests {
     fn check_whole_2() {
         let mut d = BufferedDeframer::default();
         assert!(!d.has_pending());
-        assert_len(FIRST_MESSAGE.len(), input_bytes(&mut d, FIRST_MESSAGE));
-        assert_len(SECOND_MESSAGE.len(), input_bytes(&mut d, SECOND_MESSAGE));
+        assert_len(FIRST_MESSAGE.len(), d.input_bytes(FIRST_MESSAGE));
+        assert_len(SECOND_MESSAGE.len(), d.input_bytes(SECOND_MESSAGE));
 
         let mut rl = RecordLayer::new();
         pop_first(&mut d, &mut rl);
@@ -769,7 +765,7 @@ mod tests {
         assert!(!d.has_pending());
         assert_len(
             FIRST_MESSAGE.len() + SECOND_MESSAGE.len(),
-            input_bytes_concat(&mut d, FIRST_MESSAGE, SECOND_MESSAGE),
+            d.input_bytes_concat(FIRST_MESSAGE, SECOND_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -785,7 +781,7 @@ mod tests {
         assert!(!d.has_pending());
         assert_len(
             FIRST_MESSAGE.len() + SECOND_MESSAGE.len(),
-            input_bytes_concat(&mut d, SECOND_MESSAGE, FIRST_MESSAGE),
+            d.input_bytes_concat(SECOND_MESSAGE, FIRST_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -798,12 +794,9 @@ mod tests {
     #[test]
     fn test_incremental_with_nonfatal_read_error() {
         let mut d = BufferedDeframer::default();
-        assert_len(3, input_bytes(&mut d, &FIRST_MESSAGE[..3]));
+        assert_len(3, d.input_bytes(&FIRST_MESSAGE[..3]));
         input_error(&mut d);
-        assert_len(
-            FIRST_MESSAGE.len() - 3,
-            input_bytes(&mut d, &FIRST_MESSAGE[3..]),
-        );
+        assert_len(FIRST_MESSAGE.len() - 3, d.input_bytes(&FIRST_MESSAGE[3..]));
 
         let mut rl = RecordLayer::new();
         pop_first(&mut d, &mut rl);
@@ -816,7 +809,7 @@ mod tests {
         let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_CONTENTTYPE_MESSAGE.len(),
-            input_bytes(&mut d, INVALID_CONTENTTYPE_MESSAGE),
+            d.input_bytes(INVALID_CONTENTTYPE_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -831,7 +824,7 @@ mod tests {
         let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_VERSION_MESSAGE.len(),
-            input_bytes(&mut d, INVALID_VERSION_MESSAGE),
+            d.input_bytes(INVALID_VERSION_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -846,7 +839,7 @@ mod tests {
         let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_LENGTH_MESSAGE.len(),
-            input_bytes(&mut d, INVALID_LENGTH_MESSAGE),
+            d.input_bytes(INVALID_LENGTH_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -861,7 +854,7 @@ mod tests {
         let mut d = BufferedDeframer::default();
         assert_len(
             EMPTY_APPLICATIONDATA_MESSAGE.len(),
-            input_bytes(&mut d, EMPTY_APPLICATIONDATA_MESSAGE),
+            d.input_bytes(EMPTY_APPLICATIONDATA_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -881,7 +874,7 @@ mod tests {
         let mut d = BufferedDeframer::default();
         assert_len(
             INVALID_EMPTY_MESSAGE.len(),
-            input_bytes(&mut d, INVALID_EMPTY_MESSAGE),
+            d.input_bytes(INVALID_EMPTY_MESSAGE),
         );
 
         let mut rl = RecordLayer::new();
@@ -906,14 +899,14 @@ mod tests {
         message.extend(&[0; PAYLOAD_LEN]);
 
         let mut d = BufferedDeframer::default();
-        assert_len(4096, input_bytes(&mut d, &message));
-        assert_len(4096, input_bytes(&mut d, &message));
-        assert_len(4096, input_bytes(&mut d, &message));
-        assert_len(4096, input_bytes(&mut d, &message));
+        assert_len(4096, d.input_bytes(&message));
+        assert_len(4096, d.input_bytes(&message));
+        assert_len(4096, d.input_bytes(&message));
+        assert_len(4096, d.input_bytes(&message));
         assert_len(
             OpaqueMessage::MAX_WIRE_SIZE - 16_384,
-            input_bytes(&mut d, &message),
+            d.input_bytes(&message),
         );
-        assert!(input_bytes(&mut d, &message).is_err());
+        assert!(d.input_bytes(&message).is_err());
     }
 }
