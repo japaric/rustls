@@ -253,16 +253,7 @@ impl MessageDeframer {
                 // We're joining a handshake message to the previous one here.
                 // Write it into the buffer and update the metadata.
 
-                let buf = if quic {
-                    buffer.unfilled()
-                } else {
-                    buffer.filled_mut()
-                };
-                let dst = &mut buf[meta.payload.end..meta.payload.end + payload.len()];
-                dst.copy_from_slice(payload);
-                if quic {
-                    buffer.advance(payload.len());
-                }
+                buffer.copy(payload, meta.payload.end, quic);
                 meta.message.end = end;
                 meta.payload.end += payload.len();
 
@@ -279,16 +270,7 @@ impl MessageDeframer {
                 // Write it into the buffer and create the metadata.
 
                 let expected_len = payload_size(payload)?;
-                let buf = if quic {
-                    buffer.unfilled()
-                } else {
-                    buffer.filled_mut()
-                };
-                let dst = &mut buf[..payload.len()];
-                dst.copy_from_slice(payload);
-                if quic {
-                    buffer.advance(payload.len());
-                }
+                buffer.copy(payload, 0, quic);
                 self.joining_hs
                     .insert(HandshakePayloadMeta {
                         message: Range { start: 0, end },
@@ -444,6 +426,19 @@ impl DeframerSliceBuffer<'_, '_> {
 
 trait DeframerBuffer {
     fn advance(&mut self, num_bytes: usize);
+    fn copy(&mut self, from: &[u8], at: usize, quic: bool) {
+        let buf = if quic {
+            self.unfilled()
+        } else {
+            self.filled_mut()
+        };
+        let len = from.len();
+        let into = &mut buf[at..at + len];
+        into.copy_from_slice(from);
+        if quic {
+            self.advance(len);
+        }
+    }
     fn filled(&self) -> &[u8];
     fn filled_mut(&mut self) -> &mut [u8];
     fn len(&self) -> usize {
