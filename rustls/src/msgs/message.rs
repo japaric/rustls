@@ -16,7 +16,7 @@ pub enum MessagePayload<'a> {
     Alert(AlertMessagePayload),
     Handshake {
         parsed: HandshakeMessagePayload,
-        encoded: Payload<'static>,
+        encoded: Payload<'a>,
     },
     ChangeCipherSpec(ChangeCipherSpecPayload),
     ApplicationData(Payload<'a>),
@@ -32,13 +32,6 @@ impl<'a> MessagePayload<'a> {
         }
     }
 
-    pub fn handshake(parsed: HandshakeMessagePayload) -> Self {
-        Self::Handshake {
-            encoded: Payload::new(parsed.get_encoding()),
-            parsed,
-        }
-    }
-
     pub fn new(
         typ: ContentType,
         vers: ProtocolVersion,
@@ -51,7 +44,7 @@ impl<'a> MessagePayload<'a> {
             ContentType::Handshake => {
                 HandshakeMessagePayload::read_version(&mut r, vers).map(|parsed| Self::Handshake {
                     parsed,
-                    encoded: Payload::new(payload),
+                    encoded: Payload::Borrowed(payload),
                 })
             }
             ContentType::ChangeCipherSpec => {
@@ -75,9 +68,21 @@ impl<'a> MessagePayload<'a> {
 
         match self {
             Alert(x) => Alert(x),
-            Handshake { parsed, encoded } => Handshake { parsed, encoded },
+            Handshake { parsed, encoded } => Handshake {
+                parsed,
+                encoded: encoded.into_owned(),
+            },
             ChangeCipherSpec(x) => ChangeCipherSpec(x),
             ApplicationData(x) => ApplicationData(x.into_owned()),
+        }
+    }
+}
+
+impl MessagePayload<'static> {
+    pub fn handshake(parsed: HandshakeMessagePayload) -> Self {
+        Self::Handshake {
+            encoded: Payload::new(parsed.get_encoding()),
+            parsed,
         }
     }
 }
