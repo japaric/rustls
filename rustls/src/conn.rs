@@ -442,7 +442,7 @@ impl<Data> ConnectionCommon<Data> {
     ///
     /// This is a shortcut to the `process_new_packets()` -> `process_msg()` ->
     /// `process_handshake_messages()` path, specialized for the first handshake message.
-    pub(crate) fn first_handshake_message(&mut self) -> Result<Option<Message>, Error> {
+    pub(crate) fn first_handshake_message(&mut self) -> Result<Option<Message<'static>>, Error> {
         let mut to_discard = 0;
         let res = self
             .core
@@ -451,7 +451,7 @@ impl<Data> ConnectionCommon<Data> {
                     .deframer_buffer
                     .borrow(&mut to_discard),
             )
-            .map(|opt| opt.map(Message::try_from));
+            .map(|opt| opt.map(|m| Message::try_from(m).map(|m| m.into_owned())));
         self.deframer_buffer.discard(to_discard);
 
         match res? {
