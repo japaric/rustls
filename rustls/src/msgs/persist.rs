@@ -18,6 +18,8 @@ use core::cmp;
 #[cfg(feature = "tls12")]
 use core::mem;
 
+use super::handshake;
+
 pub(crate) struct Retrieved<T> {
     pub(crate) value: T,
     retrieved_at: UnixTime,
@@ -296,7 +298,7 @@ impl<'a> Codec<'a> for ServerSessionValue {
             .encode(bytes);
     }
 
-    fn read(r: &mut Reader) -> Result<Self, InvalidMessage> {
+    fn read(r: &mut Reader<'a>) -> Result<Self, InvalidMessage> {
         let has_sni = u8::read(r)?;
         let sni = if has_sni == 1 {
             let dns_name = PayloadU8::read(r)?;
@@ -316,7 +318,9 @@ impl<'a> Codec<'a> for ServerSessionValue {
         let ems = u8::read(r)?;
         let has_ccert = u8::read(r)? == 1;
         let ccert = if has_ccert {
-            Some(CertificatePayload::read(r)?)
+            Some(handshake::certificate_payload_into_owned(Vec::<_>::read(
+                r,
+            )?))
         } else {
             None
         };

@@ -794,11 +794,11 @@ fn get_sample_helloretryrequest() -> HelloRetryRequest {
     }
 }
 
-fn get_sample_certificatepayloadtls13() -> CertificatePayloadTls13 {
+fn get_sample_certificatepayloadtls13() -> CertificatePayloadTls13<'static> {
     CertificatePayloadTls13 {
         context: PayloadU8(vec![1, 2, 3]),
         entries: vec![CertificateEntry {
-            cert: CertificateDer::from(vec![3, 4, 5]),
+            cert: CertificateDer::from(&[3, 4, 5][..]),
             exts: vec![
                 CertificateExtension::CertificateStatus(CertificateStatus {
                     ocsp_response: PayloadU24(vec![1, 2, 3]),
@@ -881,7 +881,7 @@ fn get_sample_certificatestatus() -> CertificateStatus {
     }
 }
 
-fn get_all_tls12_handshake_payloads() -> Vec<HandshakeMessagePayload> {
+fn get_all_tls12_handshake_payloads() -> Vec<HandshakeMessagePayload<'static>> {
     vec![
         HandshakeMessagePayload {
             typ: HandshakeType::HelloRequest,
@@ -901,7 +901,7 @@ fn get_all_tls12_handshake_payloads() -> Vec<HandshakeMessagePayload> {
         },
         HandshakeMessagePayload {
             typ: HandshakeType::Certificate,
-            payload: HandshakePayload::Certificate(vec![CertificateDer::from(vec![1, 2, 3])]),
+            payload: HandshakePayload::Certificate(vec![CertificateDer::from(&[1, 2, 3][..])]),
         },
         HandshakeMessagePayload {
             typ: HandshakeType::ServerKeyExchange,
@@ -1009,7 +1009,7 @@ fn can_detect_truncation_of_all_tls12_handshake_payloads() {
     }
 }
 
-fn get_all_tls13_handshake_payloads() -> Vec<HandshakeMessagePayload> {
+fn get_all_tls13_handshake_payloads() -> Vec<HandshakeMessagePayload<'static>> {
     vec![
         HandshakeMessagePayload {
             typ: HandshakeType::HelloRequest,

@@ -15,7 +15,7 @@ use alloc::vec::Vec;
 pub enum MessagePayload<'a> {
     Alert(AlertMessagePayload),
     Handshake {
-        parsed: HandshakeMessagePayload,
+        parsed: HandshakeMessagePayload<'a>,
         encoded: Payload<'a>,
     },
     ChangeCipherSpec(ChangeCipherSpecPayload),
@@ -69,7 +69,7 @@ impl<'a> MessagePayload<'a> {
         match self {
             Alert(x) => Alert(x),
             Handshake { parsed, encoded } => Handshake {
-                parsed,
+                parsed: parsed.into_owned(),
                 encoded: encoded.into_owned(),
             },
             ChangeCipherSpec(x) => ChangeCipherSpec(x),
@@ -79,7 +79,7 @@ impl<'a> MessagePayload<'a> {
 }
 
 impl MessagePayload<'static> {
-    pub fn handshake(parsed: HandshakeMessagePayload) -> Self {
+    pub fn handshake(parsed: HandshakeMessagePayload<'static>) -> Self {
         Self::Handshake {
             encoded: Payload::new(parsed.get_encoding()),
             parsed,

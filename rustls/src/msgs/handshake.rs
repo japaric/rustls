@@ -1258,7 +1258,7 @@ impl ServerHelloPayload {
 
 pub(crate) type CertificatePayload = Vec<CertificateDer<'static>>;
 
-impl TlsListElement for CertificateDer<'_> {
+impl<'a> TlsListElement for CertificateDer<'a> {
     const SIZE_LEN: ListLength = ListLength::U24 { max: 0x1_0000 };
 }
 
@@ -1322,18 +1322,18 @@ impl TlsListElement for CertificateExtension {
 }
 
 #[derive(Debug)]
-pub(crate) struct CertificateEntry {
-    pub(crate) cert: CertificateDer<'static>,
+pub(crate) struct CertificateEntry<'a> {
+    pub(crate) cert: CertificateDer<'a>,
     pub(crate) exts: Vec<CertificateExtension>,
 }
 
-impl<'a> Codec<'a> for CertificateEntry {
+impl<'a> Codec<'a> for CertificateEntry<'a> {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.cert.encode(bytes);
         self.exts.encode(bytes);
     }
 
-    fn read(r: &mut Reader) -> Result<Self, InvalidMessage> {
+    fn read(r: &mut Reader<'a>) -> Result<Self, InvalidMessage> {
         Ok(Self {
             cert: CertificateDer::read(r)?,
             exts: Vec::read(r)?,
@@ -1341,8 +1341,8 @@ impl<'a> Codec<'a> for CertificateEntry {
     }
 }
 
-impl CertificateEntry {
-    pub(crate) fn new(cert: CertificateDer<'static>) -> Self {
+impl<'a> CertificateEntry<'a> {
+    pub(crate) fn new(cert: CertificateDer<'a>) -> Self {
         Self {
             cert,
             exts: Vec::new(),
@@ -1376,25 +1376,45 @@ impl CertificateEntry {
             .find(|ext| ext.get_type() == ExtensionType::StatusRequest)
             .and_then(CertificateExtension::get_cert_status)
     }
+
+    fn into_owned(self) -> CertificateEntry<'static> {
+        CertificateEntry {
+            cert: certificate_der_into_owned(self.cert),
+            exts: self.exts,
+        }
+    }
 }
 
-impl TlsListElement for CertificateEntry {
+// FIXME this is sub-optimal in the Owned case because it clones the underlying Vec and drops
+// the original. to fix the perf issue `CertificateDer` needs to provide an `into_owned` method
+fn certificate_der_into_owned(cert: CertificateDer) -> CertificateDer<'static> {
+    CertificateDer::from(cert.as_ref().to_vec())
+}
+
+pub(super) fn certificate_payload_into_owned(payload: Vec<CertificateDer>) -> CertificatePayload {
+    payload
+        .into_iter()
+        .map(certificate_der_into_owned)
+        .collect()
+}
+
+impl<'a> TlsListElement for CertificateEntry<'a> {
     const SIZE_LEN: ListLength = ListLength::U24 { max: 0x1_0000 };
 }
 
 #[derive(Debug)]
-pub struct CertificatePayloadTls13 {
+pub struct CertificatePayloadTls13<'a> {
     pub(crate) context: PayloadU8,
-    pub(crate) entries: Vec<CertificateEntry>,
+    pub(crate) entries: Vec<CertificateEntry<'a>>,
 }
 
-impl<'a> Codec<'a> for CertificatePayloadTls13 {
+impl<'a> Codec<'a> for CertificatePayloadTls13<'a> {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.context.encode(bytes);
         self.entries.encode(bytes);
     }
 
-    fn read(r: &mut Reader) -> Result<Self, InvalidMessage> {
+    fn read(r: &mut Reader<'a>) -> Result<Self, InvalidMessage> {
         Ok(Self {
             context: PayloadU8::read(r)?,
             entries: Vec::read(r)?,
@@ -1402,8 +1422,8 @@ impl<'a> Codec<'a> for CertificatePayloadTls13 {
     }
 }
 
-impl CertificatePayloadTls13 {
-    pub(crate) fn new(entries: Vec<CertificateEntry>) -> Self {
+impl<'a> CertificatePayloadTls13<'a> {
+    pub(crate) fn new(entries: Vec<CertificateEntry<'a>>) -> Self {
         Self {
             context: PayloadU8::empty(),
             entries,
@@ -1451,8 +1471,17 @@ impl CertificatePayloadTls13 {
     pub(crate) fn convert(self) -> CertificatePayload {
         self.entries
             .into_iter()
-            .map(|e| e.cert)
+            .map(|entry| certificate_der_into_owned(entry.cert))
             .collect()
+    }
+
+    pub(crate) fn into_owned(self) -> CertificatePayloadTls13<'static> {
+        let Self { context, entries } = self;
+        let entries = entries
+            .into_iter()
+            .map(CertificateEntry::into_owned)
+            .collect();
+        CertificatePayloadTls13 { context, entries }
     }
 }
 
@@ -2042,13 +2071,13 @@ impl CertificateStatus {
 }
 
 #[derive(Debug)]
-pub enum HandshakePayload {
+pub enum HandshakePayload<'a> {
     HelloRequest,
     ClientHello(ClientHelloPayload),
     ServerHello(ServerHelloPayload),
     HelloRetryRequest(HelloRetryRequest),
     Certificate(CertificatePayload),
-    CertificateTls13(CertificatePayloadTls13),
+    CertificateTls13(CertificatePayloadTls13<'a>),
     ServerKeyExchange(ServerKeyExchangePayload),
     CertificateRequest(CertificateRequestPayload),
     CertificateRequestTls13(CertificateRequestPayloadTls13),
@@ -2066,7 +2095,7 @@ pub enum HandshakePayload {
     Unknown(Payload<'static>),
 }
 
-impl HandshakePayload {
+impl HandshakePayload<'_> {
     fn encode(&self, bytes: &mut Vec<u8>) {
         use self::HandshakePayload::*;
         match *self {
@@ -2091,15 +2120,43 @@ impl HandshakePayload {
             Unknown(ref x) => x.encode(bytes),
         }
     }
+
+    fn into_owned(self) -> HandshakePayload<'static> {
+        use HandshakePayload::*;
+
+        match self {
+            HelloRequest => HelloRequest,
+            ClientHello(x) => ClientHello(x),
+            ServerHello(x) => ServerHello(x),
+            HelloRetryRequest(x) => HelloRetryRequest(x),
+            Certificate(x) => Certificate(x),
+            CertificateTls13(x) => CertificateTls13(x.into_owned()),
+            ServerKeyExchange(x) => ServerKeyExchange(x),
+            CertificateRequest(x) => CertificateRequest(x),
+            CertificateRequestTls13(x) => CertificateRequestTls13(x),
+            CertificateVerify(x) => CertificateVerify(x),
+            ServerHelloDone => ServerHelloDone,
+            EndOfEarlyData => EndOfEarlyData,
+            ClientKeyExchange(x) => ClientKeyExchange(x),
+            NewSessionTicket(x) => NewSessionTicket(x),
+            NewSessionTicketTls13(x) => NewSessionTicketTls13(x),
+            EncryptedExtensions(x) => EncryptedExtensions(x),
+            KeyUpdate(x) => KeyUpdate(x),
+            Finished(x) => Finished(x),
+            CertificateStatus(x) => CertificateStatus(x),
+            MessageHash(x) => MessageHash(x),
+            Unknown(x) => Unknown(x),
+        }
+    }
 }
 
 #[derive(Debug)]
-pub struct HandshakeMessagePayload {
+pub struct HandshakeMessagePayload<'a> {
     pub typ: HandshakeType,
-    pub payload: HandshakePayload,
+    pub payload: HandshakePayload<'a>,
 }
 
-impl<'a> Codec<'a> for HandshakeMessagePayload {
+impl<'a> Codec<'a> for HandshakeMessagePayload<'a> {
     fn encode(&self, bytes: &mut Vec<u8>) {
         // output type, length, and encoded payload
         match self.typ {
@@ -2112,14 +2169,14 @@ impl<'a> Codec<'a> for HandshakeMessagePayload {
         self.payload.encode(nested.buf);
     }
 
-    fn read(r: &mut Reader) -> Result<Self, InvalidMessage> {
+    fn read(r: &mut Reader<'a>) -> Result<Self, InvalidMessage> {
         Self::read_version(r, ProtocolVersion::TLSv1_2)
     }
 }
 
-impl HandshakeMessagePayload {
+impl<'a> HandshakeMessagePayload<'a> {
     pub(crate) fn read_version(
-        r: &mut Reader,
+        r: &mut Reader<'a>,
         vers: ProtocolVersion,
     ) -> Result<Self, InvalidMessage> {
         let mut typ = HandshakeType::read(r)?;
@@ -2151,9 +2208,9 @@ impl HandshakeMessagePayload {
                 let p = CertificatePayloadTls13::read(&mut sub)?;
                 HandshakePayload::CertificateTls13(p)
             }
-            HandshakeType::Certificate => {
-                HandshakePayload::Certificate(CertificatePayload::read(&mut sub)?)
-            }
+            HandshakeType::Certificate => HandshakePayload::Certificate(
+                certificate_payload_into_owned(Vec::<_>::read(&mut sub)?),
+            ),
             HandshakeType::ServerKeyExchange => {
                 let p = ServerKeyExchangePayload::read(&mut sub)?;
                 HandshakePayload::ServerKeyExchange(p)
@@ -2248,6 +2305,14 @@ impl HandshakeMessagePayload {
         Self {
             typ: HandshakeType::MessageHash,
             payload: HandshakePayload::MessageHash(Payload::new(hash.to_vec())),
+        }
+    }
+
+    pub(crate) fn into_owned(self) -> HandshakeMessagePayload<'static> {
+        let Self { typ, payload } = self;
+        HandshakeMessagePayload {
+            typ,
+            payload: payload.into_owned(),
         }
     }
 }
