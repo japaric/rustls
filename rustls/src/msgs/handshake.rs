@@ -51,7 +51,7 @@ macro_rules! wrapped_payload(
         }
     }
 
-    impl Codec for $name {
+    impl<'a> Codec<'a> for $name {
         fn encode(&self, bytes: &mut Vec<u8>) {
             self.0.encode(bytes);
         }
@@ -79,7 +79,7 @@ static HELLO_RETRY_REQUEST_RANDOM: Random = Random([
 
 static ZERO_RANDOM: Random = Random([0u8; 32]);
 
-impl Codec for Random {
+impl<'a> Codec<'a> for Random {
     fn encode(&self, bytes: &mut Vec<u8>) {
         bytes.extend_from_slice(&self.0);
     }
@@ -140,7 +140,7 @@ impl PartialEq for SessionId {
     }
 }
 
-impl Codec for SessionId {
+impl<'a> Codec<'a> for SessionId {
     fn encode(&self, bytes: &mut Vec<u8>) {
         debug_assert!(self.len <= 32);
         bytes.push(self.len as u8);
@@ -256,7 +256,7 @@ pub struct ServerName {
     pub(crate) payload: ServerNamePayload,
 }
 
-impl Codec for ServerName {
+impl<'a> Codec<'a> for ServerName {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.typ.encode(bytes);
         self.payload.encode(bytes);
@@ -370,7 +370,7 @@ impl KeyShareEntry {
     }
 }
 
-impl Codec for KeyShareEntry {
+impl<'a> Codec<'a> for KeyShareEntry {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.group.encode(bytes);
         self.payload.encode(bytes);
@@ -400,7 +400,7 @@ impl PresharedKeyIdentity {
     }
 }
 
-impl Codec for PresharedKeyIdentity {
+impl<'a> Codec<'a> for PresharedKeyIdentity {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.identity.encode(bytes);
         self.obfuscated_ticket_age.encode(bytes);
@@ -440,7 +440,7 @@ impl PresharedKeyOffer {
     }
 }
 
-impl Codec for PresharedKeyOffer {
+impl<'a> Codec<'a> for PresharedKeyOffer {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.identities.encode(bytes);
         self.binders.encode(bytes);
@@ -467,7 +467,7 @@ pub struct OcspCertificateStatusRequest {
     pub(crate) extensions: PayloadU16,
 }
 
-impl Codec for OcspCertificateStatusRequest {
+impl<'a> Codec<'a> for OcspCertificateStatusRequest {
     fn encode(&self, bytes: &mut Vec<u8>) {
         CertificateStatusType::OCSP.encode(bytes);
         self.responder_ids.encode(bytes);
@@ -488,7 +488,7 @@ pub enum CertificateStatusRequest {
     Unknown((CertificateStatusType, Payload)),
 }
 
-impl Codec for CertificateStatusRequest {
+impl<'a> Codec<'a> for CertificateStatusRequest {
     fn encode(&self, bytes: &mut Vec<u8>) {
         match self {
             Self::Ocsp(ref r) => r.encode(bytes),
@@ -584,7 +584,7 @@ impl ClientExtension {
     }
 }
 
-impl Codec for ClientExtension {
+impl<'a> Codec<'a> for ClientExtension {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.get_type().encode(bytes);
 
@@ -728,7 +728,7 @@ impl ServerExtension {
     }
 }
 
-impl Codec for ServerExtension {
+impl<'a> Codec<'a> for ServerExtension {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.get_type().encode(bytes);
 
@@ -805,7 +805,7 @@ pub struct ClientHelloPayload {
     pub extensions: Vec<ClientExtension>,
 }
 
-impl Codec for ClientHelloPayload {
+impl<'a> Codec<'a> for ClientHelloPayload {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.client_version.encode(bytes);
         self.random.encode(bytes);
@@ -1031,7 +1031,7 @@ impl HelloRetryExtension {
     }
 }
 
-impl Codec for HelloRetryExtension {
+impl<'a> Codec<'a> for HelloRetryExtension {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.get_type().encode(bytes);
 
@@ -1075,7 +1075,7 @@ pub struct HelloRetryRequest {
     pub(crate) extensions: Vec<HelloRetryExtension>,
 }
 
-impl Codec for HelloRetryRequest {
+impl<'a> Codec<'a> for HelloRetryRequest {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.legacy_version.encode(bytes);
         HELLO_RETRY_REQUEST_RANDOM.encode(bytes);
@@ -1170,7 +1170,7 @@ pub struct ServerHelloPayload {
     pub(crate) extensions: Vec<ServerExtension>,
 }
 
-impl Codec for ServerHelloPayload {
+impl<'a> Codec<'a> for ServerHelloPayload {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.legacy_version.encode(bytes);
         self.random.encode(bytes);
@@ -1288,7 +1288,7 @@ impl CertificateExtension {
     }
 }
 
-impl Codec for CertificateExtension {
+impl<'a> Codec<'a> for CertificateExtension {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.get_type().encode(bytes);
 
@@ -1327,7 +1327,7 @@ pub(crate) struct CertificateEntry {
     pub(crate) exts: Vec<CertificateExtension>,
 }
 
-impl Codec for CertificateEntry {
+impl<'a> Codec<'a> for CertificateEntry {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.cert.encode(bytes);
         self.exts.encode(bytes);
@@ -1388,7 +1388,7 @@ pub struct CertificatePayloadTls13 {
     pub(crate) entries: Vec<CertificateEntry>,
 }
 
-impl Codec for CertificatePayloadTls13 {
+impl<'a> Codec<'a> for CertificatePayloadTls13 {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.context.encode(bytes);
         self.entries.encode(bytes);
@@ -1471,7 +1471,7 @@ pub(crate) struct EcParameters {
     pub(crate) named_group: NamedGroup,
 }
 
-impl Codec for EcParameters {
+impl<'a> Codec<'a> for EcParameters {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.curve_type.encode(bytes);
         self.named_group.encode(bytes);
@@ -1497,7 +1497,7 @@ pub(crate) struct ClientEcdhParams {
     pub(crate) public: PayloadU8,
 }
 
-impl Codec for ClientEcdhParams {
+impl<'a> Codec<'a> for ClientEcdhParams {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.public.encode(bytes);
     }
@@ -1527,7 +1527,7 @@ impl ServerEcdhParams {
     }
 }
 
-impl Codec for ServerEcdhParams {
+impl<'a> Codec<'a> for ServerEcdhParams {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.curve_params.encode(bytes);
         self.public.encode(bytes);
@@ -1550,7 +1550,7 @@ pub struct EcdheServerKeyExchange {
     pub(crate) dss: DigitallySignedStruct,
 }
 
-impl Codec for EcdheServerKeyExchange {
+impl<'a> Codec<'a> for EcdheServerKeyExchange {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.params.encode(bytes);
         self.dss.encode(bytes);
@@ -1570,7 +1570,7 @@ pub enum ServerKeyExchangePayload {
     Unknown(Payload),
 }
 
-impl Codec for ServerKeyExchangePayload {
+impl<'a> Codec<'a> for ServerKeyExchangePayload {
     fn encode(&self, bytes: &mut Vec<u8>) {
         match *self {
             Self::Ecdhe(ref x) => x.encode(bytes),
@@ -1716,7 +1716,7 @@ pub struct CertificateRequestPayload {
     pub(crate) canames: Vec<DistinguishedName>,
 }
 
-impl Codec for CertificateRequestPayload {
+impl<'a> Codec<'a> for CertificateRequestPayload {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.certtypes.encode(bytes);
         self.sigschemes.encode(bytes);
@@ -1758,7 +1758,7 @@ impl CertReqExtension {
     }
 }
 
-impl Codec for CertReqExtension {
+impl<'a> Codec<'a> for CertReqExtension {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.get_type().encode(bytes);
 
@@ -1805,7 +1805,7 @@ pub struct CertificateRequestPayloadTls13 {
     pub(crate) extensions: Vec<CertReqExtension>,
 }
 
-impl Codec for CertificateRequestPayloadTls13 {
+impl<'a> Codec<'a> for CertificateRequestPayloadTls13 {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.context.encode(bytes);
         self.extensions.encode(bytes);
@@ -1863,7 +1863,7 @@ impl NewSessionTicketPayload {
     }
 }
 
-impl Codec for NewSessionTicketPayload {
+impl<'a> Codec<'a> for NewSessionTicketPayload {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.lifetime_hint.encode(bytes);
         self.ticket.encode(bytes);
@@ -1896,7 +1896,7 @@ impl NewSessionTicketExtension {
     }
 }
 
-impl Codec for NewSessionTicketExtension {
+impl<'a> Codec<'a> for NewSessionTicketExtension {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.get_type().encode(bytes);
 
@@ -1976,7 +1976,7 @@ impl NewSessionTicketPayloadTls13 {
     }
 }
 
-impl Codec for NewSessionTicketPayloadTls13 {
+impl<'a> Codec<'a> for NewSessionTicketPayloadTls13 {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.lifetime.encode(bytes);
         self.age_add.encode(bytes);
@@ -2010,7 +2010,7 @@ pub struct CertificateStatus {
     pub(crate) ocsp_response: PayloadU24,
 }
 
-impl Codec for CertificateStatus {
+impl<'a> Codec<'a> for CertificateStatus {
     fn encode(&self, bytes: &mut Vec<u8>) {
         CertificateStatusType::OCSP.encode(bytes);
         self.ocsp_response.encode(bytes);
@@ -2099,7 +2099,7 @@ pub struct HandshakeMessagePayload {
     pub payload: HandshakePayload,
 }
 
-impl Codec for HandshakeMessagePayload {
+impl<'a> Codec<'a> for HandshakeMessagePayload {
     fn encode(&self, bytes: &mut Vec<u8>) {
         // output type, length, and encoded payload
         match self.typ {
@@ -2256,7 +2256,7 @@ pub struct HpkeSymmetricCipherSuite {
     pub aead_id: HpkeAead,
 }
 
-impl Codec for HpkeSymmetricCipherSuite {
+impl<'a> Codec<'a> for HpkeSymmetricCipherSuite {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.kdf_id.encode(bytes);
         self.aead_id.encode(bytes);
@@ -2282,7 +2282,7 @@ pub struct HpkeKeyConfig {
     pub symmetric_cipher_suites: Vec<HpkeSymmetricCipherSuite>,
 }
 
-impl Codec for HpkeKeyConfig {
+impl<'a> Codec<'a> for HpkeKeyConfig {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.config_id.encode(bytes);
         self.kem_id.encode(bytes);
@@ -2309,7 +2309,7 @@ pub struct EchConfigContents {
     pub extensions: PayloadU16,
 }
 
-impl Codec for EchConfigContents {
+impl<'a> Codec<'a> for EchConfigContents {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.key_config.encode(bytes);
         self.maximum_name_length.encode(bytes);
@@ -2337,7 +2337,7 @@ pub struct EchConfig {
     pub contents: EchConfigContents,
 }
 
-impl Codec for EchConfig {
+impl<'a> Codec<'a> for EchConfig {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.version.encode(bytes);
         let mut contents = Vec::with_capacity(128);
