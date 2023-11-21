@@ -1256,7 +1256,33 @@ impl ServerHelloPayload {
     }
 }
 
-pub(crate) type CertificatePayload = Vec<CertificateDer<'static>>;
+#[derive(Clone, Default, Debug)]
+pub struct CertificateChain(pub Vec<CertificateDer<'static>>);
+
+impl core::ops::Deref for CertificateChain {
+    type Target = [CertificateDer<'static>];
+
+    fn deref(&self) -> &[CertificateDer<'static>] {
+        &self.0
+    }
+}
+
+impl<'a> Codec<'a> for CertificateChain {
+    fn encode(&self, bytes: &mut Vec<u8>) {
+        Vec::encode(&self.0, bytes)
+    }
+
+    fn read(r: &mut Reader<'a>) -> Result<Self, InvalidMessage> {
+        Vec::<CertificateDer<'_>>::read(r).map(|certs| {
+            Self(
+                certs
+                    .into_iter()
+                    .map(|cert_der| CertificateDer::from(cert_der.as_ref().to_vec()))
+                    .collect(),
+            )
+        })
+    }
+}
 
 impl<'a> TlsListElement for CertificateDer<'a> {
     const SIZE_LEN: ListLength = ListLength::U24 { max: 0x1_0000 };
@@ -1391,11 +1417,13 @@ fn certificate_der_into_owned(cert: CertificateDer) -> CertificateDer<'static> {
     CertificateDer::from(cert.as_ref().to_vec())
 }
 
-pub(super) fn certificate_payload_into_owned(payload: Vec<CertificateDer>) -> CertificatePayload {
-    payload
-        .into_iter()
-        .map(certificate_der_into_owned)
-        .collect()
+pub(super) fn certificate_payload_into_owned(payload: Vec<CertificateDer>) -> CertificateChain {
+    CertificateChain(
+        payload
+            .into_iter()
+            .map(certificate_der_into_owned)
+            .collect(),
+    )
 }
 
 impl<'a> TlsListElement for CertificateEntry<'a> {
@@ -1468,11 +1496,13 @@ impl<'a> CertificatePayloadTls13<'a> {
             .unwrap_or_default()
     }
 
-    pub(crate) fn convert(self) -> CertificatePayload {
-        self.entries
-            .into_iter()
-            .map(|entry| certificate_der_into_owned(entry.cert))
-            .collect()
+    pub(crate) fn convert(self) -> CertificateChain {
+        CertificateChain(
+            self.entries
+                .into_iter()
+                .map(|entry| certificate_der_into_owned(entry.cert))
+                .collect(),
+        )
     }
 
     pub(crate) fn into_owned(self) -> CertificatePayloadTls13<'static> {
@@ -2076,7 +2106,7 @@ pub enum HandshakePayload<'a> {
     ClientHello(ClientHelloPayload),
     ServerHello(ServerHelloPayload),
     HelloRetryRequest(HelloRetryRequest),
-    Certificate(CertificatePayload),
+    Certificate(CertificateChain),
     CertificateTls13(CertificatePayloadTls13<'a>),
     ServerKeyExchange(ServerKeyExchangePayload),
     CertificateRequest(CertificateRequestPayload),
