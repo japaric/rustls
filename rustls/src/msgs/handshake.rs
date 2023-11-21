@@ -1257,30 +1257,34 @@ impl ServerHelloPayload {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct CertificateChain(pub Vec<CertificateDer<'static>>);
+pub struct CertificateChain<'a>(pub Vec<CertificateDer<'a>>);
 
-impl core::ops::Deref for CertificateChain {
-    type Target = [CertificateDer<'static>];
+impl<'a> core::ops::Deref for CertificateChain<'a> {
+    type Target = [CertificateDer<'a>];
 
-    fn deref(&self) -> &[CertificateDer<'static>] {
+    fn deref(&self) -> &[CertificateDer<'a>] {
         &self.0
     }
 }
 
-impl<'a> Codec<'a> for CertificateChain {
+impl<'a> Codec<'a> for CertificateChain<'a> {
     fn encode(&self, bytes: &mut Vec<u8>) {
         Vec::encode(&self.0, bytes)
     }
 
     fn read(r: &mut Reader<'a>) -> Result<Self, InvalidMessage> {
-        Vec::<CertificateDer<'_>>::read(r).map(|certs| {
-            Self(
-                certs
-                    .into_iter()
-                    .map(|cert_der| CertificateDer::from(cert_der.as_ref().to_vec()))
-                    .collect(),
-            )
-        })
+        Vec::<CertificateDer<'_>>::read(r).map(Self)
+    }
+}
+
+impl CertificateChain<'_> {
+    pub fn into_owned(self) -> CertificateChain<'static> {
+        CertificateChain(
+            self.0
+                .into_iter()
+                .map(certificate_der_into_owned)
+                .collect(),
+        )
     }
 }
 
@@ -1496,11 +1500,11 @@ impl<'a> CertificatePayloadTls13<'a> {
             .unwrap_or_default()
     }
 
-    pub(crate) fn convert(self) -> CertificateChain {
+    pub(crate) fn convert(self) -> CertificateChain<'a> {
         CertificateChain(
             self.entries
                 .into_iter()
-                .map(|entry| certificate_der_into_owned(entry.cert))
+                .map(|entry| entry.cert)
                 .collect(),
         )
     }
@@ -2106,7 +2110,7 @@ pub enum HandshakePayload<'a> {
     ClientHello(ClientHelloPayload),
     ServerHello(ServerHelloPayload),
     HelloRetryRequest(HelloRetryRequest),
-    Certificate(CertificateChain),
+    Certificate(CertificateChain<'a>),
     CertificateTls13(CertificatePayloadTls13<'a>),
     ServerKeyExchange(ServerKeyExchangePayload),
     CertificateRequest(CertificateRequestPayload),
@@ -2159,7 +2163,7 @@ impl HandshakePayload<'_> {
             ClientHello(x) => ClientHello(x),
             ServerHello(x) => ServerHello(x),
             HelloRetryRequest(x) => HelloRetryRequest(x),
-            Certificate(x) => Certificate(x),
+            Certificate(x) => Certificate(x.into_owned()),
             CertificateTls13(x) => CertificateTls13(x.into_owned()),
             ServerKeyExchange(x) => ServerKeyExchange(x),
             CertificateRequest(x) => CertificateRequest(x),

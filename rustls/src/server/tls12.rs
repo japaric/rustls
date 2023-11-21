@@ -534,7 +534,8 @@ impl State<ServerConnectionData> for ExpectCertificate {
             m,
             HandshakeType::Certificate,
             HandshakePayload::Certificate
-        )?;
+        )?
+        .into_owned();
 
         // If we can't determine if the auth is mandatory, abort
         let mandatory = self
@@ -596,7 +597,7 @@ struct ExpectClientKx {
     suite: &'static Tls12CipherSuite,
     using_ems: bool,
     server_kx: Box<dyn ActiveKeyExchange>,
-    client_cert: Option<CertificateChain>,
+    client_cert: Option<CertificateChain<'static>>,
     send_ticket: bool,
 }
 
@@ -674,7 +675,7 @@ struct ExpectCertificateVerify {
     transcript: HandshakeHash,
     session_id: SessionId,
     using_ems: bool,
-    client_cert: CertificateChain,
+    client_cert: CertificateChain<'static>,
     send_ticket: bool,
 }
 

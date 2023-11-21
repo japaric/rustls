@@ -207,7 +207,8 @@ impl State<ClientConnectionData> for ExpectCertificate {
             m,
             HandshakeType::Certificate,
             HandshakePayload::Certificate
-        )?;
+        )?
+        .into_owned();
 
         if self.may_send_cert_status {
             Ok(Box::new(ExpectCertificateStatusOrServerKx {
@@ -254,7 +255,7 @@ struct ExpectCertificateStatusOrServerKx {
     using_ems: bool,
     transcript: HandshakeHash,
     suite: &'static Tls12CipherSuite,
-    server_cert_chain: CertificateChain,
+    server_cert_chain: CertificateChain<'static>,
     must_issue_new_ticket: bool,
 }
 
@@ -333,7 +334,7 @@ struct ExpectCertificateStatus {
     using_ems: bool,
     transcript: HandshakeHash,
     suite: &'static Tls12CipherSuite,
-    server_cert_chain: CertificateChain,
+    server_cert_chain: CertificateChain<'static>,
     must_issue_new_ticket: bool,
 }
 
@@ -450,7 +451,7 @@ impl State<ClientConnectionData> for ExpectServerKx {
 
 fn emit_certificate(
     transcript: &mut HandshakeHash,
-    cert_chain: CertificateChain,
+    cert_chain: CertificateChain<'static>,
     common: &mut CommonState,
 ) {
     let cert = Message {

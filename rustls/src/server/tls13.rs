@@ -908,7 +908,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
             return Err(PeerMisbehaved::UnsolicitedCertExtension.into());
         }
 
-        let client_cert = certp.convert();
+        let client_cert = certp.convert().into_owned();
 
         let mandatory = self
             .config
@@ -965,7 +965,7 @@ struct ExpectCertificateVerify {
     transcript: HandshakeHash,
     suite: &'static Tls13CipherSuite,
     key_schedule: KeyScheduleTrafficWithClientFinishedPending,
-    client_cert: CertificateChain,
+    client_cert: CertificateChain<'static>,
     send_tickets: usize,
 }
 
