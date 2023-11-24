@@ -1,7 +1,9 @@
 use crate::builder::{ConfigBuilder, WantsCipherSuites};
 #[cfg(feature = "std")]
 use crate::common_state::Context;
-use crate::common_state::{CommonState, Protocol, Side, State};
+#[cfg(feature = "std")]
+use crate::common_state::Protocol;
+use crate::common_state::{CommonState, Side, State};
 use crate::conn::{ConnectionCommon, ConnectionCore, UnbufferedConnectionCommon};
 use crate::crypto::{CryptoProvider, SupportedKxGroup};
 use crate::enums::{CipherSuite, ProtocolVersion, SignatureScheme};
@@ -387,6 +389,7 @@ impl ServerConfig {
                 .any(|cs| cs.version().version == v)
     }
 
+    #[cfg(feature = "std")]
     pub(crate) fn supports_protocol(&self, proto: Protocol) -> bool {
         self.cipher_suites
             .iter()
@@ -898,6 +901,7 @@ impl ConnectionCore<ServerConnectionData> {
         ))
     }
 
+    #[cfg(feature = "std")]
     pub(crate) fn reject_early_data(&mut self) {
         assert!(
             self.common_state.is_handshaking(),
@@ -906,6 +910,7 @@ impl ConnectionCore<ServerConnectionData> {
         self.data.early_data.reject();
     }
 
+    #[cfg(feature = "std")]
     pub(crate) fn get_sni_str(&self) -> Option<&str> {
         self.data.get_sni_str()
     }
@@ -921,6 +926,7 @@ pub struct ServerConnectionData {
 }
 
 impl ServerConnectionData {
+    #[cfg(feature = "std")]
     pub(super) fn get_sni_str(&self) -> Option<&str> {
         self.sni.as_ref().map(AsRef::as_ref)
     }
