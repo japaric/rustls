@@ -1,17 +1,15 @@
 use std::error::Error;
-use std::fs::File;
-use std::io::BufReader;
 use std::net::TcpStream;
 use std::sync::Arc;
 
 use helpers::KB;
-use rustls::client::{ClientConnectionData, EarlyDataError, UnbufferedClientConnection};
+use rustls::client::{EarlyDataError, UnbufferedClientConnection};
 use rustls::unbuffered::{
-    AppDataRecord, ConnectionState, EncodeError, EncryptError, MayEncryptAppData, UnbufferedStatus,
+    AppDataRecord, ConnectionState, EncodeError, EncryptError, UnbufferedStatus,
 };
 #[allow(unused_imports)]
 use rustls::version::{TLS12, TLS13};
-use rustls::{ClientConfig, RootCertStore};
+use rustls::ClientConfig;
 use rustls_examples as helpers;
 
 /* example configuration */
@@ -39,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // .with_protocol_versions(&[&TLS12])
         .with_protocol_versions(&[&TLS13])
         .unwrap()
-        .with_root_certificates(build_root_store()?)
+        .with_root_certificates(helpers::build_root_store(CERTFILE)?)
         .with_no_client_auth();
     config.enable_early_data = SEND_EARLY_DATA;
 
@@ -74,6 +72,7 @@ fn converse(
     let mut received_response = false;
     let mut sent_early_data = false;
 
+    let http_request = helpers::build_http_request(SERVER_NAME);
     let mut iter_count = 0;
     while open_connection {
         let UnbufferedStatus { mut discard, state } =
@@ -140,11 +139,12 @@ fn converse(
                 }
 
                 if let Some(mut may_encrypt) = state.may_encrypt_app_data() {
-                    encrypt_http_request(
+                    helpers::encrypt_http_request(
                         &mut sent_request,
                         &mut may_encrypt,
                         outgoing_tls,
                         &mut outgoing_used,
+                        &http_request,
                     );
                 }
 
@@ -157,11 +157,12 @@ fn converse(
             }
 
             ConnectionState::TrafficTransit(mut may_encrypt) => {
-                if encrypt_http_request(
+                if helpers::encrypt_http_request(
                     &mut sent_request,
                     &mut may_encrypt,
                     outgoing_tls,
                     &mut outgoing_used,
+                    &http_request,
                 ) {
                     helpers::send_tls(&mut sock, outgoing_tls, &mut outgoing_used)?;
                     helpers::recv_tls(&mut sock, incoming_tls, &mut incoming_used)?;
@@ -219,45 +220,4 @@ fn converse(
     assert_eq!(0, outgoing_used);
 
     Ok(())
-}
-
-fn encrypt_http_request(
-    sent_request: &mut bool,
-    may_encrypt: &mut MayEncryptAppData<'_, ClientConnectionData>,
-    outgoing_tls: &mut [u8],
-    outgoing_used: &mut usize,
-) -> bool {
-    if !*sent_request {
-        let written = may_encrypt
-            .encrypt(&build_http_request(), &mut outgoing_tls[*outgoing_used..])
-            .expect("encrypted request does not fit in `outgoing_tls`");
-        *outgoing_used += written;
-        *sent_request = true;
-        eprintln!("queued HTTP request");
-        true
-    } else {
-        false
-    }
-}
-
-fn build_root_store() -> Result<RootCertStore, Box<dyn Error>> {
-    let mut root_store = RootCertStore::empty();
-    if let Some(path) = CERTFILE {
-        let certfile = File::open(path)?;
-        let mut reader = BufReader::new(certfile);
-        root_store.add_parsable_certificates(
-            rustls_pemfile::certs(&mut reader).collect::<Result<Vec<_>, _>>()?,
-        );
-    } else {
-        root_store.extend(
-            webpki_roots::TLS_SERVER_ROOTS
-                .iter()
-                .cloned(),
-        );
-    }
-    Ok(root_store)
-}
-
-fn build_http_request() -> Vec<u8> {
-    format!("GET / HTTP/1.1\r\nHost: {SERVER_NAME}\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n").into_bytes()
 }
